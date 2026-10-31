@@ -82,3 +82,7 @@ Checks use `Register-RTDetector` and return `New-RTFinding` objects.
 
 - Must work on any Windows display language: match on GUIDs, hardware IDs, registry values and WMI classes, never on localized text.
 - Scripts stay ASCII-only (a test enforces this): Windows PowerShell 5.1 reads BOM-less files as ANSI.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
