@@ -1,0 +1,246 @@
+[
+  {
+    "id": "asio-driver",
+    "title": "Install the right ASIO driver",
+    "category": "Drivers",
+    "summary": "ASIO bypasses the Windows audio mixer. The manufacturer's driver is what makes small buffers stable.",
+    "steps": [
+      "Find your interface's model name (on the device or in Device Manager > Sound, video and game controllers).",
+      "Download the latest Windows driver from the manufacturer's support page (not from Windows Update or third-party driver sites).",
+      "Unplug the interface, install the driver, reboot, then plug it in on the USB port you will keep using.",
+      "In your DAW select the manufacturer's ASIO driver, not 'ASIO4ALL', 'Generic Low Latency ASIO' or 'Realtek ASIO'.",
+      "No interface yet? FL Studio ASIO (bundled with FL Studio) or ASIO4ALL work with onboard audio, but expect higher latency (10-20 ms)."
+    ],
+    "actions": ["device-manager"]
+  },
+  {
+    "id": "usb-connection",
+    "title": "Connect the audio interface properly",
+    "category": "Hardware",
+    "summary": "Bus-powered interfaces are sensitive to shared, noisy or underpowered USB ports.",
+    "steps": [
+      "Plug the interface directly into a rear motherboard USB port, not into a monitor, keyboard or front-panel hub.",
+      "Avoid sharing that USB controller with webcams, external drives or wireless dongles; try a different rear port group if you hear crackles.",
+      "If the interface has a power supply, use it, even when it also works on bus power.",
+      "Use a short, good-quality cable. If you need a hub, use a powered one.",
+      "USB 2.0 interfaces work fine in USB 3 ports; prefer ports that are not shared with other high-traffic devices."
+    ],
+    "actions": ["device-manager"]
+  },
+  {
+    "id": "windows-audio",
+    "title": "Windows Sound settings",
+    "category": "Windows",
+    "summary": "Things only the Sound control panel can change reliably.",
+    "steps": [
+      "Open the Sound control panel. On the Playback and Recording tabs, open your interface > Properties.",
+      "Advanced tab: set the default format to the sample rate you work in (usually 48000 Hz, or 44100 Hz), the same in the DAW.",
+      "Advanced tab: decide on 'Allow applications to take exclusive control'. Leave it on if the DAW must grab the device; turn it off if browsers 'steal' the interface.",
+      "Enhancements / Audio enhancements: turn them all off (Spatial sound: Off).",
+      "Communications tab: select 'Do nothing' so Windows never ducks audio during calls.",
+      "If you have a dedicated interface, consider making onboard audio the Windows default device so system sounds and browsers stay off your DAW interface."
+    ],
+    "actions": ["sound-panel"]
+  },
+  {
+    "id": "bios",
+    "title": "BIOS / UEFI settings",
+    "category": "Hardware",
+    "summary": "Firmware power management and memory settings that Windows cannot change. Menu names vary by board vendor.",
+    "steps": [
+      "Enable XMP / EXPO (memory profile) so RAM runs at its rated speed.",
+      "Make sure CPU Turbo / Precision Boost is enabled.",
+      "Desktops, only if LatencyMon still shows spikes: try disabling deep C-states (C6/C7, Package C-state) or setting them to 'C1 only'. Costs idle power.",
+      "Disable onboard devices you never use (onboard audio if you have an interface, serial ports, extra SATA/RAID controllers, onboard Wi-Fi/Bluetooth on studio-only machines).",
+      "Update the BIOS if it is more than about two years old: firmware updates often fix USB and power-management bugs.",
+      "After changes, boot into Windows and re-run the scan to compare."
+    ],
+    "actions": ["reboot-uefi"]
+  },
+  {
+    "id": "gpu",
+    "title": "Graphics driver",
+    "category": "Drivers",
+    "when": "gpu:nvidia",
+    "summary": "GPU drivers are among the most common sources of DPC spikes (nvlddmkm.sys).",
+    "steps": [
+      "Install the NVIDIA Studio Driver rather than the Game Ready driver; it is tested for stability with creative apps.",
+      "During setup choose 'Custom' > 'Perform a clean installation', and only install the Graphics Driver (skip HD Audio if you never use HDMI audio, skip extras).",
+      "NVIDIA Control Panel > Manage 3D settings > Power management mode: 'Prefer maximum performance'.",
+      "Turn off overlays (NVIDIA app / GeForce Experience overlay, Instant Replay); the tool already disables Xbox Game DVR."
+    ]
+  },
+  {
+    "id": "memory-integrity",
+    "title": "Memory Integrity (Core isolation): decide consciously",
+    "category": "Security",
+    "summary": "A real security feature with measurable overhead on some systems. The tool never changes it automatically.",
+    "steps": [
+      "Only consider this if LatencyMon shows high latency after all other steps.",
+      "Work or company-managed PC: do not change it; it is likely enforced by policy.",
+      "Open Windows Security > Device security > Core isolation details and turn Memory integrity off, then reboot.",
+      "Re-test with LatencyMon. If it made no difference, turn it back on."
+    ],
+    "actions": ["core-isolation"]
+  },
+  {
+    "id": "startup-apps",
+    "title": "Trim startup apps",
+    "category": "Windows",
+    "summary": "RGB, monitoring, sync and game launchers often run polling loops that cause spikes.",
+    "steps": [
+      "Open Settings > Apps > Startup and disable everything you do not need while making music.",
+      "Prime suspects: RGB suites (iCUE, Armoury Crate, Aura, SignalRGB, G HUB, Synapse), hardware monitors, cloud sync (OneDrive/Dropbox) on project folders, game launchers.",
+      "Pause cloud sync during recording sessions and keep active projects out of synced folders.",
+      "Re-run the scan; the background check lists apps it recognises."
+    ],
+    "actions": ["startup-apps"]
+  },
+  {
+    "id": "windows-update",
+    "title": "Keep Windows Update out of your sessions",
+    "category": "Windows",
+    "summary": "Updates install drivers and run maintenance in the background.",
+    "steps": [
+      "Set Active hours to cover your usual studio time.",
+      "Before an important session or gig: install pending updates and reboot, then use 'Pause updates'.",
+      "Under Advanced options, consider turning off 'Receive updates for other Microsoft products' and check that driver updates do not replace your audio interface driver."
+    ],
+    "actions": ["windows-update"]
+  },
+  {
+    "id": "laptop",
+    "title": "Laptop specifics",
+    "category": "Hardware",
+    "when": "laptop",
+    "summary": "Laptops use aggressive power management that the power plan alone may not override.",
+    "steps": [
+      "Always produce on AC power with the original charger.",
+      "Open the vendor control app (Dell Optimizer/Power Manager, Lenovo Vantage, ASUS Armoury Crate, HP Command Center) and select its performance or 'ultra performance' thermal mode.",
+      "Set Windows power mode (Settings > System > Power) to 'Best performance'.",
+      "Hybrid-GPU laptops: if LatencyMon blames the GPU, try forcing the dedicated GPU (MUX switch / 'dGPU only') in the vendor app or BIOS."
+    ],
+    "actions": ["power-options"]
+  },
+  {
+    "id": "latencymon",
+    "title": "Verify with LatencyMon",
+    "category": "Verify",
+    "summary": "The definitive test: it measures the real worst-case DPC/ISR execution times and names the driver.",
+    "steps": [
+      "Install LatencyMon (free for personal use) from Resplendence.",
+      "Close the DAW, press Start (the play button) and use the PC normally for 10-15 minutes: browse, move windows, play audio.",
+      "'Your system appears to be suitable for handling real-time audio' = good. Otherwise check the Drivers tab, sort by 'Highest execution (ms)'.",
+      "Typical culprits: ndis.sys / wdiwifi.sys / rt640x64.sys (network: disable Wi-Fi, update LAN driver), nvlddmkm.sys / amdkmdag.sys (GPU: clean driver install), ACPI.sys / intelppm.sys (power: BIOS C-states, BIOS update), storport.sys / stornvme.sys (storage), USBPORT.SYS / USBXHCI.SYS (USB: change port or controller).",
+      "Apply one fix at a time and re-test, so you know what actually helped."
+    ],
+    "actions": ["latencymon"]
+  },
+  {
+    "id": "daw-flstudio",
+    "title": "FL Studio audio settings",
+    "category": "DAW",
+    "when": "daw:FL Studio",
+    "summary": "Options > Audio settings (F10).",
+    "steps": [
+      "Device: select your interface's ASIO driver (or 'FL Studio ASIO' with onboard audio).",
+      "Click 'Show ASIO panel' and set the buffer: 128-256 samples while recording/playing live, 512-1024 while mixing heavy projects.",
+      "Sample rate: match the interface and Windows (usually 48000 Hz).",
+      "Leave 'Triple buffer' off unless you get underruns that nothing else fixes (it adds latency).",
+      "CPU section: enable 'Multithreaded generator processing' and 'Multithreaded mixer processing'; 'Align tick lengths' on.",
+      "Playback tracking: Driver. Underruns: watch the counter in Audio settings while playing back a project.",
+      "Large projects: Tools > Macros > 'Switch smart disable for all plugins' to stop idle plugins using CPU."
+    ]
+  },
+  {
+    "id": "daw-cubase",
+    "title": "Cubase audio settings",
+    "category": "DAW",
+    "when": "daw:Cubase",
+    "summary": "Studio > Studio Setup.",
+    "steps": [
+      "Audio System: select your interface's ASIO driver (avoid 'Generic Low Latency ASIO Driver' when an interface is connected).",
+      "Click the driver entry > Control Panel to set the buffer size: 64-256 samples for recording, larger for mixing.",
+      "Audio System: enable 'Activate Steinberg Audio Power Scheme' (keeps the CPU out of power-saving states while Cubase runs).",
+      "Enable 'Activate Multi Processing'.",
+      "ASIO-Guard: on, level 'Normal' or 'High' for mixing. It adds latency only to tracks that are not record-enabled or monitored.",
+      "Studio > Project Setup: sample rate matches the interface.",
+      "Use Studio > Audio Performance to see real-time peak vs. average load; real-time peaks point to driver/DPC problems, not CPU power."
+    ]
+  },
+  {
+    "id": "daw-nuendo",
+    "title": "Nuendo audio settings",
+    "category": "DAW",
+    "when": "daw:Nuendo",
+    "summary": "Same audio engine as Cubase: Studio > Studio Setup.",
+    "steps": [
+      "Select the interface's ASIO driver and set the buffer in its Control Panel.",
+      "Enable 'Activate Steinberg Audio Power Scheme' and 'Activate Multi Processing'.",
+      "ASIO-Guard on (Normal/High) for mixing sessions."
+    ]
+  },
+  {
+    "id": "daw-abletonlive",
+    "title": "Ableton Live audio settings",
+    "category": "DAW",
+    "when": "daw:Ableton Live",
+    "summary": "Options > Settings > Audio.",
+    "steps": [
+      "Driver Type: ASIO. Audio Device: your interface.",
+      "Hardware Setup opens the driver panel; set Buffer Size there (128-256 recording, 512+ mixing).",
+      "Sample rate: match Windows and the interface.",
+      "CPU tab (Live 11/12): make sure multicore support is on.",
+      "Use 'Reduced Latency When Monitoring' only while tracking."
+    ]
+  },
+  {
+    "id": "daw-reaper",
+    "title": "REAPER audio settings",
+    "category": "DAW",
+    "when": "daw:REAPER",
+    "summary": "Options > Preferences > Audio > Device.",
+    "steps": [
+      "Audio system: ASIO, then your interface's driver; set the block size in 'ASIO Configuration...'.",
+      "Audio > Buffering: keep 'Anticipative FX processing' enabled (multi-core rendering ahead of time).",
+      "Audio > Buffering: thread priority 'Highest (recommended)'.",
+      "Disable 'Close audio device when stopped' if devices take long to reopen."
+    ]
+  },
+  {
+    "id": "daw-bitwigstudio",
+    "title": "Bitwig Studio audio settings",
+    "category": "DAW",
+    "when": "daw:Bitwig Studio",
+    "summary": "Settings > Audio.",
+    "steps": [
+      "Driver model: ASIO, device: your interface.",
+      "Set block size (128-256 tracking, 512+ mixing) and match the sample rate.",
+      "Settings > Plug-ins: 'Together' or 'By manufacturer' hosting uses fewer resources than 'Individually'; use 'Individually' only to isolate crashing plugins."
+    ]
+  },
+  {
+    "id": "daw-studioone",
+    "title": "Studio One audio settings",
+    "category": "DAW",
+    "when": "daw:Studio One",
+    "summary": "Studio One > Options > Audio Setup.",
+    "steps": [
+      "Audio Device: your interface's ASIO driver.",
+      "Device Block Size: 128-256 for recording. Enable 'Dropout Protection' (Medium/High) for mixing, and 'Native Low-Latency Monitoring' for tracking.",
+      "Process Precision: Single (64-bit only if needed)."
+    ]
+  },
+  {
+    "id": "daw-protools",
+    "title": "Pro Tools audio settings",
+    "category": "DAW",
+    "when": "daw:Pro Tools",
+    "summary": "Setup > Playback Engine and Setup > Hardware.",
+    "steps": [
+      "Playback Engine: select your interface's ASIO driver.",
+      "H/W Buffer Size: 64-256 for recording, 1024 for mixing.",
+      "Enable Dynamic Plug-In Processing; adjust Host Processors to the number of cores minus one or two."
+    ]
+  }
+]

@@ -1,0 +1,204 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RTAudio Setup" Width="1180" Height="760" MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen" FontFamily="Segoe UI" FontSize="13" Background="#F6F7F9">
+  <Window.Resources>
+    <SolidColorBrush x:Key="Accent" Color="#3B5BDB"/>
+    <SolidColorBrush x:Key="Muted" Color="#5F6670"/>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="14,6"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="{StaticResource Accent}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style TargetType="DataGrid">
+      <Setter Property="AutoGenerateColumns" Value="False"/>
+      <Setter Property="HeadersVisibility" Value="Column"/>
+      <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+      <Setter Property="HorizontalGridLinesBrush" Value="#E3E5E8"/>
+      <Setter Property="BorderBrush" Value="#D5D8DC"/>
+      <Setter Property="Background" Value="White"/>
+      <Setter Property="RowBackground" Value="White"/>
+      <Setter Property="CanUserAddRows" Value="False"/>
+      <Setter Property="CanUserDeleteRows" Value="False"/>
+      <Setter Property="SelectionMode" Value="Single"/>
+      <Setter Property="RowHeight" Value="28"/>
+    </Style>
+    <Style x:Key="StatusText" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Status}" Value="Ok"><Setter Property="Foreground" Value="#1A7F37"/></DataTrigger>
+        <DataTrigger Binding="{Binding Status}" Value="NotOptimal"><Setter Property="Foreground" Value="#9A6700"/></DataTrigger>
+        <DataTrigger Binding="{Binding Status}" Value="Unknown"><Setter Property="Foreground" Value="#0969DA"/></DataTrigger>
+        <DataTrigger Binding="{Binding Status}" Value="NotApplicable"><Setter Property="Foreground" Value="#8C959F"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="SeverityText" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Severity}" Value="Problem"><Setter Property="Foreground" Value="#CF222E"/></DataTrigger>
+        <DataTrigger Binding="{Binding Severity}" Value="Warning"><Setter Property="Foreground" Value="#9A6700"/></DataTrigger>
+        <DataTrigger Binding="{Binding Severity}" Value="Info"><Setter Property="Foreground" Value="#0969DA"/></DataTrigger>
+        <DataTrigger Binding="{Binding Severity}" Value="Ok"><Setter Property="Foreground" Value="#1A7F37"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel>
+    <!-- Header -->
+    <Border DockPanel.Dock="Top" Background="White" BorderBrush="#E3E5E8" BorderThickness="0,0,0,1" Padding="20,14">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="Latency sample (s):" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource Muted}"/>
+          <ComboBox x:Name="LatencyBox" Width="60" Margin="0,0,12,0" VerticalAlignment="Center" SelectedIndex="2">
+            <ComboBoxItem>0</ComboBoxItem><ComboBoxItem>10</ComboBoxItem><ComboBoxItem>20</ComboBoxItem><ComboBoxItem>60</ComboBoxItem>
+          </ComboBox>
+          <Button x:Name="ScanButton" Content="Scan system" Style="{StaticResource Primary}"/>
+          <Button x:Name="ReportButton" Content="Export report" IsEnabled="False" Margin="0"/>
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Text="RTAudio Setup" FontSize="20" FontWeight="SemiBold"/>
+          <TextBlock x:Name="SubtitleText" Foreground="{StaticResource Muted}" Text="Windows tuning for real-time audio. Scan first; nothing changes until you apply."/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="#E3E5E8" BorderThickness="0,1,0,0" Padding="20,6">
+      <DockPanel>
+        <ProgressBar x:Name="Busy" DockPanel.Dock="Right" Width="160" Height="6" IsIndeterminate="True" Visibility="Collapsed"/>
+        <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}" Text="Ready."/>
+      </DockPanel>
+    </Border>
+
+    <Border x:Name="AdminBanner" DockPanel.Dock="Top" Background="#FFF8C5" Padding="20,8" Visibility="Collapsed">
+      <TextBlock TextWrapping="Wrap">Not running as administrator: you can scan and read the guide, but applying or undoing tweaks is disabled. Restart via Start-RTAudio.cmd to elevate.</TextBlock>
+    </Border>
+
+    <TabControl x:Name="Tabs" Margin="16,12,16,12" Padding="12">
+      <!-- Findings -->
+      <TabItem Header="  1 · Findings  ">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <DataGrid x:Name="FindingsGrid" IsReadOnly="True">
+            <DataGrid.Columns>
+              <DataGridTemplateColumn Header="Severity" Width="90">
+                <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Severity}" Style="{StaticResource SeverityText}" Margin="6,0"/></DataTemplate></DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="150"/>
+              <DataGridTextColumn Header="Finding" Binding="{Binding Title}" Width="*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+          <Border Grid.Row="1" Background="White" BorderBrush="#D5D8DC" BorderThickness="1" Padding="14" Margin="0,10,0,0" MinHeight="110">
+            <DockPanel>
+              <Button x:Name="FindingGuideButton" DockPanel.Dock="Right" Content="Open guide page" VerticalAlignment="Top" Visibility="Collapsed" Margin="12,0,0,0"/>
+              <StackPanel>
+                <TextBlock x:Name="FindingTitle" FontWeight="SemiBold" TextWrapping="Wrap" Text="Run a scan to see findings."/>
+                <TextBlock x:Name="FindingDetail" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                <TextBlock x:Name="FindingAdvice" TextWrapping="Wrap" Margin="0,8,0,0"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </TabItem>
+
+      <!-- Tweaks -->
+      <TabItem Header="  2 · Tweaks  ">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="Preset:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <ComboBox x:Name="PresetBox" Width="140" VerticalAlignment="Center" SelectedIndex="2">
+              <ComboBoxItem>Custom</ComboBoxItem><ComboBoxItem>Safe</ComboBoxItem><ComboBoxItem>Recommended</ComboBoxItem><ComboBoxItem>Aggressive</ComboBoxItem>
+            </ComboBox>
+            <CheckBox x:Name="OnlyOpenBox" Content="Hide tweaks that are already OK" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            <TextBlock x:Name="SelectionText" VerticalAlignment="Center" Margin="20,0,0,0" Foreground="{StaticResource Muted}"/>
+          </StackPanel>
+          <DataGrid x:Name="TweaksGrid" Grid.Row="1">
+            <DataGrid.Columns>
+              <DataGridTemplateColumn Header="" Width="34">
+                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                  <CheckBox IsChecked="{Binding Selected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="Status" Width="100" SortMemberPath="Status">
+                <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding StatusText}" Style="{StaticResource StatusText}" Margin="6,0"/></DataTemplate></DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="120" IsReadOnly="True"/>
+              <DataGridTextColumn Header="Tweak" Binding="{Binding Title}" Width="*" IsReadOnly="True"/>
+              <DataGridTextColumn Header="Risk" Binding="{Binding Risk}" Width="80" IsReadOnly="True"/>
+              <DataGridTextColumn Header="Reboot" Binding="{Binding RebootText}" Width="60" IsReadOnly="True"/>
+              <DataGridTextColumn Header="Backup" Binding="{Binding AppliedText}" Width="70" IsReadOnly="True"/>
+            </DataGrid.Columns>
+          </DataGrid>
+          <Border Grid.Row="2" Background="White" BorderBrush="#D5D8DC" BorderThickness="1" Padding="14" Margin="0,10,0,0" MinHeight="96">
+            <StackPanel>
+              <TextBlock x:Name="TweakTitle" FontWeight="SemiBold" TextWrapping="Wrap" Text="Select a tweak to see why it matters."/>
+              <TextBlock x:Name="TweakWhy" TextWrapping="Wrap" Margin="0,4,0,0"/>
+              <TextBlock x:Name="TweakState" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            </StackPanel>
+          </Border>
+          <DockPanel Grid.Row="3" Margin="0,10,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+              <Button x:Name="UndoSelectedButton" Content="Undo selected"/>
+              <Button x:Name="UndoAllButton" Content="Undo everything" Margin="0"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal">
+              <Button x:Name="ApplyButton" Content="Apply selected" Style="{StaticResource Primary}"/>
+              <Button x:Name="DryRunButton" Content="Dry run"/>
+              <CheckBox x:Name="RestorePointBox" Content="Create System Restore point first" IsChecked="True" VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </StackPanel>
+          </DockPanel>
+        </Grid>
+      </TabItem>
+
+      <!-- Guide -->
+      <TabItem Header="  3 · Manual steps  ">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <ListBox x:Name="GuideList" BorderBrush="#D5D8DC" Margin="0,0,12,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate><DataTemplate>
+              <StackPanel Margin="4,5">
+                <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding Category}" Foreground="#5F6670" FontSize="11"/>
+              </StackPanel>
+            </DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+          <Border Grid.Column="1" Background="White" BorderBrush="#D5D8DC" BorderThickness="1" Padding="20">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+                <WrapPanel x:Name="GuideActions" Margin="0,0,0,10"/>
+                <CheckBox x:Name="GuideDoneBox" Content="I've done this step" FontWeight="SemiBold"/>
+              </StackPanel>
+              <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                  <TextBlock x:Name="GuideTitle" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Text="Manual steps"/>
+                  <TextBlock x:Name="GuideSummary" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,12"
+                             Text="Things the tool cannot (or should not) change for you. Pick a page on the left."/>
+                  <ItemsControl x:Name="GuideSteps">
+                    <ItemsControl.ItemTemplate><DataTemplate>
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,10" LineHeight="20"/>
+                    </DataTemplate></ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </TabItem>
+
+      <!-- Log -->
+      <TabItem Header="  Log  ">
+        <TextBox x:Name="LogBox" IsReadOnly="True" FontFamily="Cascadia Mono, Consolas" FontSize="12" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto" Background="White" BorderBrush="#D5D8DC" Padding="8"/>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>
