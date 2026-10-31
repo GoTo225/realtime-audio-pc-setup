@@ -144,12 +144,16 @@
     "summary": "Options > Audio settings (F10).",
     "steps": [
       "Device: select your interface's ASIO driver (or 'FL Studio ASIO' with onboard audio).",
-      "Click 'Show ASIO panel' and set the buffer: 128-256 samples while recording/playing live, 512-1024 while mixing heavy projects.",
+      "Click 'Show ASIO panel' and set the buffer: 128-256 samples while recording/playing live, 512-1024 while mixing heavy projects. Use the smallest buffer that plays without underruns.",
       "Sample rate: match the interface and Windows (usually 48000 Hz).",
-      "Leave 'Triple buffer' off unless you get underruns that nothing else fixes (it adds latency).",
-      "CPU section: enable 'Multithreaded generator processing' and 'Multithreaded mixer processing'; 'Align tick lengths' on.",
+      "Leave 'Triple buffer' off unless you get underruns that nothing else fixes (it doubles latency). 'Mix in buffer switch' can lower latency on some interfaces but hides underruns from the counter.",
+      "Audio processing thread: keep 'Safe overloads' on (otherwise the GUI can freeze during overloads). Raise 'Priority' only if you get underruns; higher values risk lockups.",
+      "CPU section: enable 'Multithreaded generator processing', 'Multithreaded mixer processing' and 'Smart disable'. Leave 'Align tick lengths' off; it is a troubleshooting option for plugin clicks or timing drift.",
+      "Mixer: 'Resampling' set to 6-point hermite saves CPU during live playback (the default 24-point sinc is fine on fast CPUs). Untick 'Reset plugins on transport' for faster response when jumping around the song.",
       "Playback tracking: Driver. Underruns: watch the counter in Audio settings while playing back a project.",
-      "Large projects: Tools > Macros > 'Switch smart disable for all plugins' to stop idle plugins using CPU."
+      "Plugins (Options > Manage plugins): keep the search paths to your real plugin folders, not whole drives. After installing new plugins click 'Find installed plugins' with 'Verify plugins' on and 'Rescan previously verified plugins' off, so only new plugins are scanned.",
+      "Large projects: Tools > Macros > 'Switch smart disable for all plugins' to stop idle plugins using CPU.",
+      "Optional tweaks in this tool: 'Always start FL Studio with high CPU priority' and the Defender exclusion (includes the Image-Line folders)."
     ]
   },
   {

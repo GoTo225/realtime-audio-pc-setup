@@ -131,6 +131,12 @@ Describe 'Catalog' {
         @($rec | Where-Object { $agg -notcontains $_ }).Count | Should Be 0
         $safe.Count -gt 0 | Should Be $true
     }
+    It 'offers DAW-specific tweaks only when the DAW is installed' {
+        $none = Get-RTTweaks -Context @{ Daws = @(); AudioDevices = @(); Interfaces = @() }
+        $fl = Get-RTTweaks -Context @{ Daws = @([pscustomobject]@{ Name = 'FL Studio'; InstallLocation = '' }); AudioDevices = @(); Interfaces = @() }
+        @($none | Where-Object { $_.Id -eq 'daw.flstudio-priority' }).Count | Should Be 0
+        @($fl | Where-Object { $_.Id -eq 'daw.flstudio-priority' }).Count | Should Be 1
+    }
     It 'keeps Advanced tweaks out of Safe and Recommended' {
         @($tweaks | Where-Object { $_.Risk -eq 'Advanced' -and ($_.Presets -contains 'Safe' -or $_.Presets -contains 'Recommended') }).Count | Should Be 0
     }

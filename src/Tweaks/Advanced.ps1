@@ -8,7 +8,9 @@ function Get-RTDefenderCandidates {
         (Join-Path $env:CommonProgramFiles 'Avid\Audio\Plug-Ins'),
         (Join-Path $env:ProgramFiles 'VSTPlugins'),
         (Join-Path $env:ProgramFiles 'Steinberg\VSTPlugins'),
-        (Join-Path $env:ProgramFiles 'Common Files\Steinberg\VST2')
+        (Join-Path $env:ProgramFiles 'Common Files\Steinberg\VST2'),
+        (Join-Path $env:ProgramFiles 'Image-Line\Shared'),
+        (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Image-Line')
     )
     $paths += @($ctx.Daws | Where-Object { $_.InstallLocation } | ForEach-Object { $_.InstallLocation.TrimEnd('\') })
     @($paths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique)

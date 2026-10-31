@@ -32,7 +32,7 @@ Without admin rights (`RTAudio.ps1 -NoElevate`) the GUI is scan-only.
 
 ## Presets
 
-Presets are cumulative: *Aggressive* includes *Recommended*, which includes *Safe*. Tweaks without a preset (Defender exclusions, disabling individual audio devices) are never selected automatically.
+Presets are cumulative: *Aggressive* includes *Recommended*, which includes *Safe*. Tweaks without a preset (Defender exclusions, FL Studio high priority, disabling individual audio devices) are never selected automatically. DAW-specific tweaks only appear when that DAW is installed.
 
 | Preset | Contains |
 |---|---|
@@ -56,7 +56,7 @@ RTAudio.ps1            entry point (GUI or CLI)
 Start-RTAudio.cmd      double-click launcher
 src/Engine.psm1        tweak registry, scan, apply/backup/undo, guide, report
 src/Detect/            inventory (DAWs, audio devices, ASIO, latency sampling) and read-only checks
-src/Tweaks/            tweak definitions by category; Devices.ps1 generates per-device tweaks
+src/Tweaks/            tweak definitions by category; Devices.ps1 generates per-device tweaks, Daw.ps1 per-DAW tweaks
 src/Guide/guide.json   manual step pages
 src/UI/                WPF window (XAML) and its logic
 tests/                 Pester 3.4 tests (Invoke-Pester .\tests)
