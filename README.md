@@ -6,11 +6,21 @@ and **guides** you through the steps it cannot do itself (BIOS, DAW settings, dr
 
 No installation needed: plain Windows PowerShell 5.1 + WPF.
 
+## Quick check: is this PC suitable for audio?
+
+Double-click **`Check-Audio.cmd`** (read-only, no administrator rights, about 15 seconds; works from a USB stick, e.g. to check a laptop before buying it). It opens the tool without elevation and shows the verdict at the top of the Findings tab; hover an area for details:
+
+- **Verdict**: *Suitable*, *Suitable with limits* or *Not well suited*, and the smallest buffer size that ran without dropouts.
+- **Areas**: CPU, memory, storage, audio interface, audio driver, power, Windows tuning, real-time performance. Each is marked **Hardware** (a limit of the machine), **Setup** (fixable with this tool, a driver or a manual step) or **Measured**.
+- **Real-time probe**: an MMCSS "Pro Audio" thread (the scheduling class DAWs use) simulates an audio callback every 64 samples at 48 kHz for 10 s and records how late each one finishes (DPC/interrupt load, scheduling delays, CPU throttling). From that it predicts the stalls per minute at 64-1024 samples, assuming the DAW uses 50% of each buffer period. It measures the PC, not the audio interface's driver: confirm with LatencyMon and your DAW.
+
+The full GUI (`Start-RTAudio.cmd`) shows the same verdict after every scan. Console variant: `.\RTAudio.ps1 -Check [-ProbeSeconds 15]`.
+
 ## Use it
 
 Double-click **`Start-RTAudio.cmd`** (asks for administrator rights). Then:
 
-1. **Findings**: what the scan found (ASIO drivers, audio interface, USB hubs, DPC/interrupt load, CPU throttling, Memory Integrity, background apps, storage, pending reboots, ...). Double-click a finding to open the matching guide page.
+1. **Findings**: the audio readiness verdict, and what the scan found (ASIO drivers, audio interface, USB hubs, DPC/interrupt load, CPU throttling, Memory Integrity, background apps, storage, pending reboots, ...). Double-click a finding to open the matching guide page.
 2. **Tweaks**: pick a preset (*Safe*, *Recommended*, *Aggressive*) or tick tweaks yourself. *Dry run* shows what would change; *Apply selected* creates a System Restore point, backs up the current values and applies them. *Undo selected* or *Undo everything* restores the originals.
 3. **Manual steps**: a checklist for what has to be done by hand, with buttons that open the right Windows panel (or reboot into the BIOS). Pages are filtered to your machine (installed DAWs, NVIDIA GPU, laptop).
 4. **Export report**: HTML summary of findings, tweak states and the changes made in this session.
@@ -20,7 +30,8 @@ Without admin rights (`RTAudio.ps1 -NoElevate`) the GUI is scan-only.
 ### Command line
 
 ```powershell
-.\RTAudio.ps1 -Scan -LatencySeconds 20 -Report .\report.html   # read-only
+.\RTAudio.ps1 -Check                                           # quick suitability check, read-only
+.\RTAudio.ps1 -Scan -LatencySeconds 20 -Report .\report.html   # full read-only scan (incl. probe)
 .\RTAudio.ps1 -List                                            # all tweak ids + status
 .\RTAudio.ps1 -Preset Recommended -DryRun                      # preview
 .\RTAudio.ps1 -Preset Recommended                              # apply (elevated prompt)
@@ -53,9 +64,11 @@ Never changed automatically: BIOS settings, Memory Integrity/VBS, drivers, DAW s
 
 ```
 RTAudio.ps1            entry point (GUI or CLI)
-Start-RTAudio.cmd      double-click launcher
+Start-RTAudio.cmd      double-click launcher (GUI)
+Check-Audio.cmd        double-click quick check (GUI, read-only, no elevation)
 src/Engine.psm1        tweak registry, scan, apply/backup/undo, guide, report
-src/Detect/            inventory (DAWs, audio devices, ASIO, latency sampling) and read-only checks
+src/Detect/            inventory (DAWs, audio devices, ASIO, latency sampling), read-only checks,
+                       real-time probe (Probe.ps1) and the readiness verdict (Readiness.ps1)
 src/Tweaks/            tweak definitions by category; Devices.ps1 generates per-device tweaks, Daw.ps1 per-DAW tweaks
 src/Guide/guide.json   manual step pages
 src/UI/                WPF window (XAML) and its logic

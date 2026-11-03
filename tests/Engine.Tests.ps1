@@ -106,6 +106,57 @@ InModuleScope Engine {
         }
     }
 
+    Describe 'Measure-RTBufferStalls' {
+        It 'counts consecutive late callbacks as one stall and scales thresholds with the buffer' {
+            # 64 samples @48k = 1.33 ms -> 50% headroom 0.67 ms; 128 -> 1.33 ms; 256 -> 2.67 ms
+            $d = [float[]]@(0, 0.1, 0.9, 0.8, 0, 1.5, 0.2, 3.0, 2.0, 0)
+            $r = @(Measure-RTBufferStalls -DelaysMs $d -Seconds 60 -Buffers 64, 128, 256)
+            $r[0].Stalls | Should Be 3
+            $r[1].Stalls | Should Be 2
+            $r[2].Stalls | Should Be 1
+            $r[2].PerMinute | Should Be 1
+        }
+    }
+
+    Describe 'Get-RTReadiness' {
+        $goodHw = @{ Cpu = @{ Name = 'CPU'; Cores = 8; Threads = 16; Hybrid = $false }; RamGB = 32
+                     SystemDisk = @{ Name = 'SSD'; MediaType = 'SSD'; BusType = 'NVMe' }; FreePct = 50; IsLaptop = $false; OnBattery = $false }
+        $iface = @([pscustomobject]@{ Name = 'Scarlett 2i2'; Enabled = $true })
+        $probe = { param($stable) [pscustomobject]@{ Ok = $true; StableBuffer = $stable; MaxMs = 0.5; Buffers = @() } }
+        $facts = { param($hw, $p, $ifaces = $iface) @{ Hardware = $hw; Interfaces = $ifaces; VendorAsio = $true; AnyAsio = $true; ClassDriverOnly = $false; Probe = $p; OpenTweaks = 0; Throttled = $false } }
+
+        It 'rates a well-equipped, tuned PC as suitable' {
+            $r = Get-RTReadiness (& $facts $goodHw (& $probe 128))
+            $r.Level | Should Be 'Suitable'
+            $r.StableBuffer | Should Be 128
+            @($r.Areas | Where-Object Rating -ne 'Good').Count | Should Be 0
+        }
+        It 'limits a PC without an audio interface' {
+            (Get-RTReadiness (& $facts $goodHw (& $probe 128) @())).Level | Should Be 'Limited'
+        }
+        It 'limits a PC that only runs stable at large buffers' {
+            (Get-RTReadiness (& $facts $goodHw (& $probe 512))).Level | Should Be 'Limited'
+        }
+        It 'rejects a PC that stalls at every buffer size or has a hardware limit' {
+            (Get-RTReadiness (& $facts $goodHw (& $probe $null))).Level | Should Be 'NotSuitable'
+            $weak = $goodHw.Clone(); $weak.RamGB = 4
+            (Get-RTReadiness (& $facts $weak (& $probe 128))).Level | Should Be 'NotSuitable'
+        }
+        It 'treats missing vendor ASIO and battery power as fixable setup issues' {
+            $f = & $facts ($goodHw.Clone()) (& $probe 128)
+            $f.VendorAsio = $false; $f.Hardware.OnBattery = $true; $f.Hardware.IsLaptop = $true
+            $r = Get-RTReadiness $f
+            $r.Level | Should Be 'Suitable'
+            ($r.Areas | Where-Object Area -eq 'Audio driver').Rating | Should Be 'Poor'
+            ($r.Areas | Where-Object Area -eq 'Power').Kind | Should Be 'Setup'
+            $r.Summary | Should Match 'fixable'
+        }
+        It 'works without a probe result' {
+            $r = Get-RTReadiness (& $facts $goodHw $null)
+            ($r.Areas | Where-Object Area -eq 'Real-time performance').Rating | Should Be 'Unknown'
+        }
+    }
+
     Describe 'Tweak validation' {
         It 'rejects an invalid risk' {
             { Complete-RTTweak @{ Id = 'x'; Category = 'c'; Title = 't'; Why = 'w'; Risk = 'Yolo'; Kind = 'Registry'; Params = @{ Values = @() } } } | Should Throw
@@ -166,6 +217,16 @@ Describe 'Guide' {
             }
             ($missing -join ', ') | Should Be ''
         }
+    }
+}
+
+Describe 'Invoke-RTRealtimeProbe' {
+    It 'runs without administrator rights and reports every buffer size' {
+        $p = Invoke-RTRealtimeProbe -Seconds 2
+        $p.Ok | Should Be $true
+        $p.Callbacks -gt 1000 | Should Be $true
+        @($p.Buffers).Count | Should Be 5
+        $p.MaxMs -ge $p.MedianMs | Should Be $true
     }
 }
 

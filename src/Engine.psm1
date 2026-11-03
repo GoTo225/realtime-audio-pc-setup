@@ -298,7 +298,7 @@ function Invoke-RTScan {
     <#
       .SYNOPSIS Read-only scan. Returns tweak states, findings and the context.
     #>
-    param([int]$LatencySeconds = 20, [scriptblock]$Progress = { param($msg) })
+    param([int]$LatencySeconds = 20, [int]$ProbeSeconds = 0, [scriptblock]$Progress = { param($msg) })
     & $Progress 'Collecting system information...'
     $ctx = Get-RTContext
     $tweaks = Get-RTTweaks -Context $ctx
@@ -314,21 +314,33 @@ function Invoke-RTScan {
 
     $findings = New-Object System.Collections.ArrayList
     foreach ($d in $script:Detectors) {
-        & $Progress $(if ($d.Slow) { "Running $($d.Id) (about $LatencySeconds s)..." } else { "Running $($d.Id)..." })
+        & $Progress $(if ($d.Slow -and $LatencySeconds -gt 0) { "Running $($d.Id) (about $LatencySeconds s)..." } else { "Running $($d.Id)..." })
         try { foreach ($f in @(& $d.Detect $ctx $LatencySeconds)) { if ($f) { [void]$findings.Add($f) } } }
         catch {
             [void]$findings.Add((New-RTFinding -Id "$($d.Id).error" -Severity Info -Category 'Tool' -Title "Check '$($d.Id)' could not run" -Detail $_.Exception.Message))
         }
     }
 
+    # Runs after the other detectors, never alongside them, so the scan itself does not disturb it.
+    $probe = $null
+    if ($ProbeSeconds -gt 0) {
+        & $Progress "Real-time audio probe (about $ProbeSeconds s, keep the PC idle)..."
+        try { $probe = Invoke-RTRealtimeProbe -Seconds $ProbeSeconds }
+        catch { $probe = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message } }
+    }
+
     $sevOrder = @{ Problem = 0; Warning = 1; Info = 2; Ok = 3 }
-    [pscustomobject]@{
+    $scan = [pscustomobject]@{
         Timestamp = Get-Date
         Computer  = $env:COMPUTERNAME
         Context   = $ctx
         Tweaks    = @($tweakResults)
         Findings  = @($findings | Sort-Object { $sevOrder[$_.Severity] }, Category, Title)
+        Readiness = $null
     }
+    & $Progress 'Rating readiness...'
+    try { $scan.Readiness = Get-RTReadinessForScan -Scan $scan -Probe $probe } catch { Write-RTLog "Readiness: $_" }
+    $scan
 }
 
 function Get-RTPresetIds {
@@ -546,6 +558,26 @@ th{font-weight:600;color:var(--muted)}.b{font-weight:600}.Ok,.Applied,.Reverted,
 <h1>RTAudio report</h1>
 <div class="muted">$(& $e $Scan.Computer) &middot; $(& $e $os.Caption) $(& $e $os.Version) &middot; $(& $e $Scan.Timestamp.ToString('yyyy-MM-dd HH:mm'))</div>
 "@)
+    $rd = $Scan.Readiness
+    if ($rd) {
+        $lvl = @{ Suitable = 'Ok'; Limited = 'Warning'; NotSuitable = 'Problem' }[$rd.Level]
+        [void]$sb.Append("<h2>Audio readiness</h2><p><span class='b $lvl' style='font-size:18px'>$(& $e $rd.Headline)</span><br>$(& $e $rd.Summary)</p>")
+        [void]$sb.Append('<table><tr><th>Rating</th><th>Area</th><th>Type</th><th>Result</th><th>Advice</th></tr>')
+        foreach ($a in $rd.Areas) {
+            $cls = @{ Good = 'Ok'; Fair = 'Warning'; Poor = 'Problem'; Unknown = 'Info' }[$a.Rating]
+            [void]$sb.Append("<tr><td class='b $cls'>$($a.Rating)</td><td>$(& $e $a.Area)</td><td class='muted'>$($a.Kind)</td><td>$(& $e $a.Summary)</td><td>$(& $e $a.Advice)</td></tr>")
+        }
+        [void]$sb.Append('</table>')
+        if ($rd.Probe -and $rd.Probe.Ok) {
+            [void]$sb.Append("<p class='muted'>Probe: $($rd.Probe.Callbacks) callbacks in $($rd.Probe.Seconds) s; delay median $($rd.Probe.MedianMs) ms, 99.9% $($rd.Probe.P999Ms) ms, max $($rd.Probe.MaxMs) ms. Assumes 50% DSP load at 48 kHz.</p>")
+            [void]$sb.Append('<table><tr><th>Buffer</th><th>Latency</th><th>Stalls</th><th>Per minute</th></tr>')
+            foreach ($b in $rd.Probe.Buffers) {
+                $cls = if ($b.Stalls -eq 0) { 'Ok' } else { 'Problem' }
+                [void]$sb.Append("<tr><td>$($b.Buffer) samples</td><td>$($b.BufferMs) ms</td><td class='b $cls'>$($b.Stalls)</td><td>$($b.PerMinute)</td></tr>")
+            }
+            [void]$sb.Append('</table>')
+        }
+    }
     [void]$sb.Append('<h2>Findings</h2><table><tr><th>Severity</th><th>Category</th><th>Finding</th><th>Advice</th></tr>')
     foreach ($f in $Scan.Findings) {
         [void]$sb.Append("<tr><td class='b $($f.Severity)'>$($f.Severity)</td><td>$(& $e $f.Category)</td><td><div class='b'>$(& $e $f.Title)</div><div class='muted'>$(& $e $f.Detail)</div></td><td>$(& $e $f.Advice)</td></tr>")
@@ -574,4 +606,5 @@ foreach ($dir in 'Detect', 'Tweaks') {
 
 Export-ModuleMember -Function Test-RTAdmin, Get-RTContext, Get-RTTweaks, Test-RTTweak, Invoke-RTScan, Get-RTPresetIds,
     Invoke-RTApply, Invoke-RTUndo, Get-RTAppliedTweaks, Get-RTGuide, Set-RTGuideDone, Get-RTGuideAction, Invoke-RTGuideAction,
-    Export-RTReport, ConvertFrom-RTPowercfgQuery, Get-RTAudioDevices, Get-RTInstalledDaws, Get-RTLatencySample
+    Export-RTReport, ConvertFrom-RTPowercfgQuery, Get-RTAudioDevices, Get-RTInstalledDaws, Get-RTLatencySample,
+    Invoke-RTRealtimeProbe, Get-RTReadiness

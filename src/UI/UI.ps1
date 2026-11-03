@@ -45,7 +45,7 @@ namespace RTAudio {
 }
 
 function Show-RTAudioWindow {
-    param([Parameter(Mandatory)][string]$EnginePath)
+    param([Parameter(Mandatory)][string]$EnginePath, [switch]$QuickCheck)
 
     $script:IsAdmin = Test-RTAdmin
     $script:LastScan = $null
@@ -93,6 +93,11 @@ function Show-RTAudioWindow {
     })
 
     Update-RTGuideList (Get-RTGuide -Context @{ Daws = @() } -All)
+    if ($QuickCheck) {
+        # Quick check: skip the per-core DPC sampling; the real-time probe still runs.
+        $C.LatencyBox.SelectedIndex = 0
+        $C.SubtitleText.Text = 'Quick check: is this PC suitable for real-time audio? Read-only.'
+    }
     $window.Add_ContentRendered({ Start-RTScanJob })
     $window.Add_Closed({ try { $script:Runspace.Close() } catch { } })
     [void]$window.ShowDialog()
@@ -149,7 +154,7 @@ function Start-RTScanJob {
     Start-RTJob -Label 'Scanning...' -Parameters @{ LatencySeconds = $secs } -Work {
         param($Sync, $LatencySeconds)
         $global:RTSync = $Sync
-        Invoke-RTScan -LatencySeconds $LatencySeconds -Progress { param($m) $global:RTSync.Status = $m }
+        Invoke-RTScan -LatencySeconds $LatencySeconds -ProbeSeconds 10 -Progress { param($m) $global:RTSync.Status = $m }
     } -OnDone {
         param($scan)
         Update-RTView $scan
@@ -249,6 +254,7 @@ function Update-RTView {
     $script:LastScan = $Scan
     $C.ReportButton.IsEnabled = $true
     $C.FindingsGrid.ItemsSource = @($Scan.Findings)
+    Update-RTVerdict $Scan.Readiness
 
     $previous = @{}
     if ($KeepSelection -and $script:TweakRows) { foreach ($r in $script:TweakRows) { $previous[$r.Id] = $r.Selected } }
@@ -277,6 +283,28 @@ function Update-RTView {
     $C.SubtitleText.Text = "$(& $count 'Problem') problem(s)$dot$(& $count 'Warning') warning(s)$dot$open tweak(s) not optimal${dot}scanned $($Scan.Timestamp.ToString('HH:mm'))"
 
     Update-RTGuideList (Get-RTGuide -Context $Scan.Context)
+}
+
+function Update-RTVerdict {
+    param($Readiness)
+    if (-not $Readiness) { $C.VerdictPanel.Visibility = 'Collapsed'; return }
+    $C.VerdictPanel.Visibility = 'Visible'
+    $C.VerdictStripe.Background = @{ Suitable = '#1A7F37'; Limited = '#9A6700'; NotSuitable = '#CF222E' }[$Readiness.Level]
+    $C.VerdictHeadline.Text = $Readiness.Headline
+    $summary = $Readiness.Summary
+    if (-not $Readiness.Probe) { $summary += ' Click "Scan system" to measure real-time performance again after changes.' }
+    $C.VerdictSummary.Text = $summary
+    $colors = @{ Good = '#1A7F37'; Fair = '#9A6700'; Poor = '#CF222E'; Unknown = '#5F6670' }
+    $C.VerdictAreas.ItemsSource = @($Readiness.Areas | ForEach-Object {
+        [pscustomobject]@{
+            Rating = $_.Rating; Area = $_.Area; Color = $colors[$_.Rating]
+            Tip = "$($_.Summary)$(if ($_.Advice) { "`n`n$($_.Advice)" })`n`n($($_.Kind))"
+        }
+    })
+    $p = $Readiness.Probe
+    $C.VerdictBuffers.Text = if ($p -and $p.Ok) {
+        'Real-time probe @48 kHz:  ' + (($p.Buffers | ForEach-Object { "$($_.Buffer): $(if ($_.Stalls) { "$($_.PerMinute) stalls/min" } else { 'stable' })" }) -join "   $([char]0xB7)   ")
+    } else { '' }
 }
 
 function Set-RTPresetBox {
