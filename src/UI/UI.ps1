@@ -29,6 +29,15 @@ namespace RTAudio {
         public string RebootText { get { return Reboot ? "yes" : ""; } }
         public string[] Presets { get; set; }
     }
+    public class StudioRow : Notify {
+        private bool _selected;
+        public bool Selected { get { return _selected; } set { if (_selected != value) { _selected = value; On("Selected"); } } }
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string Why { get; set; }
+        public string Note { get; set; }
+        public bool Available { get; set; }
+    }
     public class GuideRow : Notify {
         private bool _done;
         public string Id { get; set; }
@@ -70,11 +79,14 @@ function Show-RTAudioWindow {
 
     if (-not $script:IsAdmin) {
         $C.AdminBanner.Visibility = 'Visible'
-        foreach ($b in 'ApplyButton', 'UndoSelectedButton', 'UndoAllButton') { $C[$b].IsEnabled = $false }
+        foreach ($b in 'ApplyButton', 'UndoSelectedButton', 'UndoAllButton', 'StudioStartButton', 'StudioEndButton') { $C[$b].IsEnabled = $false }
         $C.RestorePointBox.IsEnabled = $false
     }
 
     $C.ScanButton.Add_Click({ Start-RTScanJob })
+    $C.StopButton.Add_Click({ $script:Sync.Cancel = $true; $C.StatusText.Text = 'Stopping the probe...' })
+    $C.StudioStartButton.Add_Click({ Start-RTStudioJob -On })
+    $C.StudioEndButton.Add_Click({ Start-RTStudioJob })
     $C.ReportButton.Add_Click({ Export-RTReportFromUi })
     $C.FindingsGrid.Add_SelectionChanged({ Show-RTFinding $C.FindingsGrid.SelectedItem })
     $C.FindingsGrid.Add_MouseDoubleClick({ $f = $C.FindingsGrid.SelectedItem; if ($f -and $f.GuideId) { Open-RTGuidePage $f.GuideId } })
@@ -93,6 +105,7 @@ function Show-RTAudioWindow {
     })
 
     Update-RTGuideList (Get-RTGuide -Context @{ Daws = @() } -All)
+    Update-RTStudioView
     if ($QuickCheck) {
         # Quick check: skip the per-core DPC sampling; the real-time probe still runs.
         $C.LatencyBox.SelectedIndex = 0
@@ -108,13 +121,21 @@ function Show-RTAudioWindow {
 function Set-RTBusy {
     param([bool]$Busy, [string]$Text)
     $C.Busy.Visibility = if ($Busy) { 'Visible' } else { 'Collapsed' }
-    foreach ($b in 'ScanButton', 'ApplyButton', 'DryRunButton', 'UndoSelectedButton', 'UndoAllButton', 'ReportButton') {
+    $C.StopButton.Visibility = if ($Busy) { 'Visible' } else { 'Collapsed' }
+    foreach ($b in 'ScanButton', 'ApplyButton', 'DryRunButton', 'UndoSelectedButton', 'UndoAllButton', 'ReportButton', 'StudioStartButton', 'StudioEndButton') {
         $enable = -not $Busy
-        if ($b -in 'ApplyButton', 'UndoSelectedButton', 'UndoAllButton') { $enable = $enable -and $script:IsAdmin }
+        if ($b -in 'ApplyButton', 'UndoSelectedButton', 'UndoAllButton', 'StudioStartButton', 'StudioEndButton') { $enable = $enable -and $script:IsAdmin }
         if ($b -eq 'ReportButton') { $enable = $enable -and [bool]$script:LastScan }
         $C[$b].IsEnabled = $enable
     }
+    if (-not $Busy) { Set-RTStudioButtons }
     if ($Text) { $C.StatusText.Text = $Text }
+}
+
+function Set-RTStudioButtons {
+    $on = [bool](Get-RTStudioState)
+    $C.StudioStartButton.IsEnabled = $script:IsAdmin -and -not $script:Job -and -not $on
+    $C.StudioEndButton.IsEnabled = $script:IsAdmin -and -not $script:Job -and $on
 }
 
 function Start-RTJob {
@@ -122,6 +143,7 @@ function Start-RTJob {
     if ($script:Job) { return }
     Set-RTBusy $true $Label
     $script:Sync.Status = $Label
+    $script:Sync.Cancel = $false
     $ps = [powershell]::Create()
     $ps.Runspace = $script:Runspace
     [void]$ps.AddScript($Work.ToString()).AddParameter('Sync', $script:Sync)
@@ -151,15 +173,60 @@ function Start-RTJob {
 
 function Start-RTScanJob {
     $secs = [int]$C.LatencyBox.SelectedItem.Content
-    Start-RTJob -Label 'Scanning...' -Parameters @{ LatencySeconds = $secs } -Work {
-        param($Sync, $LatencySeconds)
+    $probe = [int]$C.ProbeBox.SelectedItem.Tag
+    Start-RTJob -Label 'Scanning...' -Parameters @{ LatencySeconds = $secs; ProbeSeconds = $probe } -Work {
+        param($Sync, $LatencySeconds, $ProbeSeconds)
         $global:RTSync = $Sync
-        Invoke-RTScan -LatencySeconds $LatencySeconds -ProbeSeconds 10 -Progress { param($m) $global:RTSync.Status = $m }
+        Invoke-RTScan -LatencySeconds $LatencySeconds -ProbeSeconds $ProbeSeconds -ProbeLabel $(if ($ProbeSeconds -gt 60) { 'soak test' } else { 'scan' }) `
+            -Control $Sync -Progress { param($m) $global:RTSync.Status = $m }
     } -OnDone {
         param($scan)
         Update-RTView $scan
         $C.StatusText.Text = "Scan finished at $(Get-Date -Format 'HH:mm:ss')."
     }
+}
+
+function Start-RTStudioJob {
+    param([switch]$On)
+    $ids = [string[]]@()
+    if ($On) {
+        $ids = [string[]]@($script:StudioRows | Where-Object { $_.Selected -and $_.Available } | ForEach-Object Id)
+        if (-not $ids) { [System.Windows.MessageBox]::Show('Nothing selected.', 'RTAudio Setup') | Out-Null; return }
+    } elseif (-not (Get-RTStudioState)) { [System.Windows.MessageBox]::Show('Studio mode is not on.', 'RTAudio Setup') | Out-Null; return }
+    Start-RTJob -Label $(if ($On) { 'Starting studio mode...' } else { 'Ending studio mode...' }) -Parameters @{ Ids = $ids; On = [bool]$On } -Work {
+        param($Sync, $Ids, $On)
+        $global:RTSync = $Sync
+        $p = { param($m) $global:RTSync.Status = $m }
+        [pscustomobject]@{ Results = @($(if ($On) { Enable-RTStudioMode -Ids $Ids -Progress $p } else { Disable-RTStudioMode -Progress $p })) }
+    } -OnDone {
+        param($r)
+        Update-RTStudioView
+        Complete-RTChange -Results $r.Results -Scan $null -Verb $(if (Get-RTStudioState) { 'Studio mode on' } else { 'Studio mode off' })
+    }
+}
+
+function Update-RTStudioView {
+    $state = Get-RTStudioState
+    if ($state) {
+        $since = try { ([datetime]$state.StartedAt).ToString('HH:mm') } catch { '' }
+        $C.StudioStatus.Text = "Studio mode is ON (since $since): $(@($state.Actions.Keys).Count) setting(s) active"
+        $C.StudioTab.Header = '  Studio mode (on)  '
+    } else {
+        $C.StudioStatus.Text = 'Studio mode is off'
+        $C.StudioTab.Header = '  Studio mode  '
+    }
+    $active = if ($state) { @($state.Actions.Keys) } else { @() }
+    $rows = New-Object 'System.Collections.ObjectModel.ObservableCollection[RTAudio.StudioRow]'
+    foreach ($a in Get-RTStudioActions) {
+        $note = if ($active -contains $a.Id) { 'Active now.' } elseif (-not $a.Available) { "Not needed: $($a.Note)." } else { '' }
+        $rows.Add((New-Object RTAudio.StudioRow -Property @{
+            Id = $a.Id; Title = $a.Title; Why = $a.Why; Note = $note
+            Available = ($a.Available -and -not $state); Selected = ($a.Default -and $a.Available)
+        }))
+    }
+    $script:StudioRows = $rows
+    $C.StudioList.ItemsSource = $rows
+    Set-RTStudioButtons
 }
 
 function Get-RTSelectedRows { @($script:TweakRows | Where-Object Selected) }
@@ -182,7 +249,7 @@ function Start-RTApplyJob {
         $p = { param($m) $global:RTSync.Status = $m }
         $results = @(Invoke-RTApply -Ids $Ids -DryRun:$DryRun -NoRestorePoint:$NoRestorePoint -Progress $p)
         $global:RTSync.Status = 'Re-checking...'
-        [pscustomobject]@{ Results = $results; Scan = $(if (-not $DryRun) { Invoke-RTScan -LatencySeconds 0 -Progress $p }) }
+        [pscustomobject]@{ Results = $results; Scan = $(if (-not $DryRun) { Invoke-RTScan -LatencySeconds 0 -ProbeSeconds 10 -ProbeLabel 'after applying tweaks' -Control $Sync -Progress $p }) }
     } -OnDone {
         param($r)
         Complete-RTChange -Results $r.Results -Scan $r.Scan -Verb $(if ($r.Scan) { 'Apply' } else { 'Dry run' })
@@ -208,7 +275,7 @@ function Start-RTUndoJob {
         $global:RTSync = $Sync
         $p = { param($m) $global:RTSync.Status = $m }
         $results = @(Invoke-RTUndo -Ids $Ids -Progress $p)
-        [pscustomobject]@{ Results = $results; Scan = (Invoke-RTScan -LatencySeconds 0 -Progress $p) }
+        [pscustomobject]@{ Results = $results; Scan = (Invoke-RTScan -LatencySeconds 0 -ProbeSeconds 10 -ProbeLabel 'after undo' -Control $Sync -Progress $p) }
     } -OnDone {
         param($r)
         Complete-RTChange -Results $r.Results -Scan $r.Scan -Verb 'Undo'
@@ -229,7 +296,7 @@ function Complete-RTChange {
     $info = $Results | Where-Object Outcome -eq 'Info' | ForEach-Object Detail
     if ($info) { $summary += "`n`n$($info -join "`n")" }
     $needsReboot = $Verb -ne 'Dry run' -and ($Results | Where-Object { $_.Reboot -and $_.Outcome -in 'Applied', 'AppliedUnverified', 'Reverted' })
-    if ($Verb -eq 'Dry run') { $C.Tabs.SelectedIndex = 3 }
+    if ($Verb -eq 'Dry run') { $C.Tabs.SelectedItem = $C.LogTab }
     if ($needsReboot) {
         $summary += "`n`nSome changes need a reboot. Reboot now?"
         if ([System.Windows.MessageBox]::Show($summary, 'RTAudio Setup', 'YesNo', 'Information') -eq 'Yes') { Restart-Computer -Force }
@@ -301,9 +368,21 @@ function Update-RTVerdict {
             Tip = "$($_.Summary)$(if ($_.Advice) { "`n`n$($_.Advice)" })`n`n($($_.Kind))"
         }
     })
+    $cmp = if ($Readiness.PSObject.Properties['Comparison']) { $Readiness.Comparison } else { $null }
+    if ($cmp) {
+        $C.VerdictCompare.Visibility = 'Visible'
+        $C.VerdictCompare.Text = $cmp.Text
+        $C.VerdictCompare.Foreground = @{ Better = '#1A7F37'; Worse = '#CF222E'; Unchanged = '#5F6670' }[$cmp.Verdict]
+    } else { $C.VerdictCompare.Visibility = 'Collapsed' }
     $p = $Readiness.Probe
+    $drv = @()
+    if ($p -and $p.PSObject.Properties['Drivers'] -and $p.Drivers -and $p.Drivers.Ok) { $drv = @($p.Drivers.Drivers | Select-Object -First 3) }
+    if ($drv) {
+        $C.VerdictDrivers.Visibility = 'Visible'
+        $C.VerdictDrivers.Text = 'Longest driver interruptions during the probe:  ' + (($drv | ForEach-Object { "$($_.Driver) $([math]::Round($_.MaxUs)) us" }) -join "   $([char]0xB7)   ")
+    } else { $C.VerdictDrivers.Visibility = 'Collapsed' }
     $C.VerdictBuffers.Text = if ($p -and $p.Ok) {
-        'Real-time probe @48 kHz:  ' + (($p.Buffers | ForEach-Object { "$($_.Buffer): $(if ($_.Stalls) { "$($_.PerMinute) stalls/min" } else { 'stable' })" }) -join "   $([char]0xB7)   ")
+        "Real-time probe ($($p.Seconds) s) @48 kHz:  " +(($p.Buffers | ForEach-Object { "$($_.Buffer): $(if ($_.Stalls) { "$($_.PerMinute) stalls/min" } else { 'stable' })" }) -join "   $([char]0xB7)   ")
     } else { '' }
 }
 
@@ -369,7 +448,7 @@ function Open-RTGuidePage {
     if (-not $row) { return }
     $C.GuideList.SelectedItem = $row
     $C.GuideList.ScrollIntoView($row)
-    if (-not $NoSwitch) { $C.Tabs.SelectedIndex = 2 }
+    if (-not $NoSwitch) { $C.Tabs.SelectedItem = $C.GuideTab }
 }
 
 function Show-RTGuidePage {

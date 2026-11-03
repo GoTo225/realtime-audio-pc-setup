@@ -298,7 +298,8 @@ function Invoke-RTScan {
     <#
       .SYNOPSIS Read-only scan. Returns tweak states, findings and the context.
     #>
-    param([int]$LatencySeconds = 20, [int]$ProbeSeconds = 0, [scriptblock]$Progress = { param($msg) })
+    param([int]$LatencySeconds = 20, [int]$ProbeSeconds = 0, [string]$ProbeLabel = 'scan', [hashtable]$Control,
+          [scriptblock]$Progress = { param($msg) })
     & $Progress 'Collecting system information...'
     $ctx = Get-RTContext
     $tweaks = Get-RTTweaks -Context $ctx
@@ -325,8 +326,27 @@ function Invoke-RTScan {
     $probe = $null
     if ($ProbeSeconds -gt 0) {
         & $Progress "Real-time audio probe (about $ProbeSeconds s, keep the PC idle)..."
-        try { $probe = Invoke-RTRealtimeProbe -Seconds $ProbeSeconds }
+        # With admin rights a kernel DPC/ISR trace runs alongside the probe and names the drivers behind stalls.
+        $trace = $null; $traceError = ''
+        if (Test-RTAdmin) { try { $trace = Start-RTDriverTrace } catch { $traceError = $_.Exception.Message } }
+        else { $traceError = 'Run as administrator to name the drivers behind latency spikes.' }
+        try { $probe = Invoke-RTRealtimeProbe -Seconds $ProbeSeconds -Progress $Progress -Control $Control }
         catch { $probe = [pscustomobject]@{ Ok = $false; Error = $_.Exception.Message } }
+        finally {
+            $drivers = $null
+            if ($trace) { try { $drivers = Stop-RTDriverTrace -Trace $trace } catch { $traceError = $_.Exception.Message } }
+        }
+        if (-not $drivers) { $drivers = [pscustomobject]@{ Ok = $false; Error = $traceError; Drivers = @() } }
+        if ($probe.PSObject.Properties['Drivers']) { $probe.Drivers = $drivers }
+        try { foreach ($f in @(Get-RTDriverTraceFindings -Result $drivers)) { if ($f) { [void]$findings.Add($f) } } }
+        catch { Write-RTLog "Driver trace findings: $_" }
+    }
+    $comparison = $null
+    if ($probe -and $probe.Ok) {
+        $studio = $false; try { $studio = [bool](Get-RTStudioState) } catch { }
+        $record = ConvertTo-RTProbeRecord -Probe $probe -Label $ProbeLabel -AppliedTweaks @(Get-RTAppliedTweaks).Count -StudioMode $studio
+        $previous = Add-RTProbeHistory -Record $record
+        if ($previous) { try { $comparison = Compare-RTProbe -Before $previous -After $record } catch { Write-RTLog "Probe compare: $_" } }
     }
 
     $sevOrder = @{ Problem = 0; Warning = 1; Info = 2; Ok = 3 }
@@ -339,7 +359,10 @@ function Invoke-RTScan {
         Readiness = $null
     }
     & $Progress 'Rating readiness...'
-    try { $scan.Readiness = Get-RTReadinessForScan -Scan $scan -Probe $probe } catch { Write-RTLog "Readiness: $_" }
+    try {
+        $scan.Readiness = Get-RTReadinessForScan -Scan $scan -Probe $probe
+        $scan.Readiness | Add-Member -NotePropertyName Comparison -NotePropertyValue $comparison -Force
+    } catch { Write-RTLog "Readiness: $_" }
     $scan
 }
 
@@ -577,6 +600,10 @@ th{font-weight:600;color:var(--muted)}.b{font-weight:600}.Ok,.Applied,.Reverted,
             }
             [void]$sb.Append('</table>')
         }
+        if ($rd.PSObject.Properties['Comparison'] -and $rd.Comparison) {
+            $cls = @{ Better = 'Ok'; Worse = 'Problem'; Unchanged = 'Info' }[$rd.Comparison.Verdict]
+            [void]$sb.Append("<p class='b $cls'>$(& $e $rd.Comparison.Text)</p>")
+        }
     }
     [void]$sb.Append('<h2>Findings</h2><table><tr><th>Severity</th><th>Category</th><th>Finding</th><th>Advice</th></tr>')
     foreach ($f in $Scan.Findings) {
@@ -600,11 +627,13 @@ th{font-weight:600;color:var(--muted)}.b{font-weight:600}.Ok,.Applied,.Reverted,
 #endregion
 
 # Load tweak and detector definitions (dot-sourced so they share this module's scope).
-foreach ($dir in 'Detect', 'Tweaks') {
+foreach ($dir in 'Detect', 'Tweaks', 'Studio') {
     Get-ChildItem -Path (Join-Path $PSScriptRoot $dir) -Filter '*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
 }
 
 Export-ModuleMember -Function Test-RTAdmin, Get-RTContext, Get-RTTweaks, Test-RTTweak, Invoke-RTScan, Get-RTPresetIds,
     Invoke-RTApply, Invoke-RTUndo, Get-RTAppliedTweaks, Get-RTGuide, Set-RTGuideDone, Get-RTGuideAction, Invoke-RTGuideAction,
     Export-RTReport, ConvertFrom-RTPowercfgQuery, Get-RTAudioDevices, Get-RTInstalledDaws, Get-RTLatencySample,
-    Invoke-RTRealtimeProbe, Get-RTReadiness
+    Invoke-RTRealtimeProbe, Get-RTReadiness, Get-RTProbeHistory, Compare-RTProbe,
+    Get-RTStudioActions, Get-RTStudioState, Enable-RTStudioMode, Disable-RTStudioMode,
+    Start-RTDriverTrace, Stop-RTDriverTrace, Get-RTDriverExplanation

@@ -61,7 +61,13 @@
           <ComboBox x:Name="LatencyBox" Width="60" Margin="0,0,12,0" VerticalAlignment="Center" SelectedIndex="1">
             <ComboBoxItem>0</ComboBoxItem><ComboBoxItem>10</ComboBoxItem><ComboBoxItem>20</ComboBoxItem><ComboBoxItem>60</ComboBoxItem>
           </ComboBox>
+          <TextBlock Text="Real-time probe:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource Muted}"
+                     ToolTip="10 s is a quick check. Longer runs (soak test) catch rare spikes: use the PC normally while they run."/>
+          <ComboBox x:Name="ProbeBox" Width="110" Margin="0,0,12,0" VerticalAlignment="Center" SelectedIndex="0">
+            <ComboBoxItem Tag="10">10 s</ComboBoxItem><ComboBoxItem Tag="60">1 min</ComboBoxItem><ComboBoxItem Tag="180">3 min (soak)</ComboBoxItem><ComboBoxItem Tag="300">5 min (soak)</ComboBoxItem>
+          </ComboBox>
           <Button x:Name="ScanButton" Content="Scan system" Style="{StaticResource Primary}"/>
+          <Button x:Name="StopButton" Content="Stop probe" Visibility="Collapsed"/>
           <Button x:Name="ReportButton" Content="Export report" IsEnabled="False" Margin="0"/>
         </StackPanel>
         <StackPanel>
@@ -107,6 +113,8 @@
                   </DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <TextBlock x:Name="VerdictBuffers" Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12"/>
+                <TextBlock x:Name="VerdictDrivers" TextWrapping="Wrap" FontSize="12" Margin="0,2,0,0" Visibility="Collapsed"/>
+                <TextBlock x:Name="VerdictCompare" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,0" Visibility="Collapsed"/>
               </StackPanel>
             </DockPanel>
           </Border>
@@ -183,7 +191,7 @@
       </TabItem>
 
       <!-- Guide -->
-      <TabItem Header="  3 · Manual steps  ">
+      <TabItem x:Name="GuideTab" Header="  3 · Manual steps  ">
         <Grid>
           <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <ListBox x:Name="GuideList" BorderBrush="#D5D8DC" Margin="0,0,12,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
@@ -217,8 +225,35 @@
         </Grid>
       </TabItem>
 
+      <!-- Studio mode -->
+      <TabItem x:Name="StudioTab" Header="  Studio mode  ">
+        <Grid>
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <Border Background="White" BorderBrush="#D5D8DC" BorderThickness="1" Padding="14,10" Margin="0,0,0,10">
+            <StackPanel>
+              <TextBlock x:Name="StudioStatus" FontSize="16" FontWeight="SemiBold" Text="Studio mode is off"/>
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,2,0,0"
+                         Text="Temporary settings for a recording session. Unlike tweaks they are meant to be switched on before a session and off afterwards; everything is restored when you end studio mode (also after a reboot)."/>
+            </StackPanel>
+          </Border>
+          <ListBox x:Name="StudioList" Grid.Row="1" BorderBrush="#D5D8DC" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate><DataTemplate>
+              <StackPanel Margin="4,6">
+                <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" IsEnabled="{Binding Available}" FontWeight="SemiBold" Content="{Binding Title}"/>
+                <TextBlock Text="{Binding Why}" TextWrapping="Wrap" Margin="22,2,0,0" Foreground="#5F6670"/>
+                <TextBlock Text="{Binding Note}" TextWrapping="Wrap" Margin="22,2,0,0" Foreground="#9A6700"/>
+              </StackPanel>
+            </DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+            <Button x:Name="StudioStartButton" Content="Start studio mode" Style="{StaticResource Primary}"/>
+            <Button x:Name="StudioEndButton" Content="End studio mode"/>
+          </StackPanel>
+        </Grid>
+      </TabItem>
+
       <!-- Log -->
-      <TabItem Header="  Log  ">
+      <TabItem x:Name="LogTab" Header="  Log  ">
         <TextBox x:Name="LogBox" IsReadOnly="True" FontFamily="Cascadia Mono, Consolas" FontSize="12" TextWrapping="Wrap"
                  VerticalScrollBarVisibility="Auto" Background="White" BorderBrush="#D5D8DC" Padding="8"/>
       </TabItem>

@@ -9,7 +9,8 @@
       "Download the latest Windows driver from the manufacturer's support page (not from Windows Update or third-party driver sites).",
       "Unplug the interface, install the driver, reboot, then plug it in on the USB port you will keep using.",
       "In your DAW select the manufacturer's ASIO driver, not 'ASIO4ALL', 'Generic Low Latency ASIO' or 'Realtek ASIO'.",
-      "No interface yet? FL Studio ASIO (bundled with FL Studio) or ASIO4ALL work with onboard audio, but expect higher latency (10-20 ms)."
+      "No interface yet? FL Studio ASIO (bundled with FL Studio) or ASIO4ALL work with onboard audio, but expect higher latency (10-20 ms).",
+      "Drivers of interfaces you no longer own, or entries whose files are missing, only clutter the DAW's driver list and can hang its driver scan: uninstall them in Settings > Apps > Installed apps. If an entry remains, reinstall that driver and uninstall it again."
     ],
     "actions": ["device-manager"]
   },
@@ -23,6 +24,7 @@
       "Avoid sharing that USB controller with webcams, external drives or wireless dongles; try a different rear port group if you hear crackles.",
       "If the interface has a power supply, use it, even when it also works on bus power.",
       "Use a short, good-quality cable. If you need a hub, use a powered one.",
+      "If you do not apply the USB power tweaks: Device Manager > Universal Serial Bus controllers > each USB Root Hub / hub on the interface's path > Properties > Power Management: untick 'Allow the computer to turn off this device to save power'.",
       "USB 2.0 interfaces work fine in USB 3 ports; prefer ports that are not shared with other high-traffic devices."
     ],
     "actions": ["device-manager"]
@@ -37,6 +39,7 @@
       "Advanced tab: set the default format to the sample rate you work in (usually 48000 Hz, or 44100 Hz), the same in the DAW.",
       "Advanced tab: decide on 'Allow applications to take exclusive control'. Leave it on if the DAW must grab the device; turn it off if browsers 'steal' the interface.",
       "Enhancements / Audio enhancements: turn them all off (Spatial sound: Off).",
+      "Windows 11: Settings > System > Sound > (device) > Audio enhancements: Off. This is per device; check both the playback and the recording device of your interface.",
       "Communications tab: select 'Do nothing' so Windows never ducks audio during calls.",
       "If you have a dedicated interface, consider making onboard audio the Windows default device so system sounds and browsers stay off your DAW interface."
     ],
@@ -121,6 +124,19 @@
       "Hybrid-GPU laptops: if LatencyMon blames the GPU, try forcing the dedicated GPU (MUX switch / 'dGPU only') in the vendor app or BIOS."
     ],
     "actions": ["power-options"]
+  },
+  {
+    "id": "plugins",
+    "title": "Plugins and sample libraries",
+    "category": "Software",
+    "summary": "Where plugins and samples live matters for load times, streaming and stability.",
+    "steps": [
+      "Keep plugin folders (VST3: C:\\Program Files\\Common Files\\VST3, and your VST2 folder) on the internal system SSD.",
+      "Put sample libraries on an internal SSD. For Native Instruments/Kontakt libraries use Native Access > Preferences > Content location to move them, so the registry paths stay correct.",
+      "External USB drives work for samples, but connect them to a different USB controller than the audio interface and make sure they are connected before the DAW starts.",
+      "Replace 32-bit plugins with 64-bit versions; bridged plugins cost CPU and crash more often. Remove plugins you no longer use, the DAW scans every one of them.",
+      "Point the DAW's plugin search paths at your real plugin folders, not at whole drives."
+    ]
   },
   {
     "id": "latencymon",

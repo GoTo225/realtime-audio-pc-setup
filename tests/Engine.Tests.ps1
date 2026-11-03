@@ -106,6 +106,57 @@ InModuleScope Engine {
         }
     }
 
+    Describe 'Get-RTInterfaceVendor' {
+        It 'uses the USB vendor ID first' { Get-RTInterfaceVendor -Name 'USB Audio' -InstanceId 'USB\VID_1235&PID_8210\1' | Should Be 'Focusrite' }
+        It 'falls back to the name for Thunderbolt/PCIe devices' { Get-RTInterfaceVendor -Name 'Universal Audio Apollo Twin X' -InstanceId 'PCI\VEN_1234&DEV_0001\1' | Should Be 'Universal Audio' }
+        It 'returns empty for unknown devices' { Get-RTInterfaceVendor -Name 'Mystery Box' -InstanceId 'USB\VID_FFFF&PID_0001\1' | Should Be '' }
+    }
+
+    Describe 'Get-RTAsioFindings' {
+        $ok = @{ Dll = 'x.dll'; DllExists = $true }
+        $drv = { param($name, $views = @{ 64 = $ok; 32 = $ok }) New-RTAsioDriver -Name $name -Views $views }
+        $iface = { param($name, $vendor) [pscustomobject]@{ Name = $name; KnownVendor = $vendor; Enabled = $true } }
+        $ids = { param($f) @($f | ForEach-Object Id) }
+
+        It 'confirms a matching vendor driver' {
+            $f = Get-RTAsioFindings -Interfaces @(& $iface 'Scarlett 2i2' 'Focusrite') -Drivers @(& $drv 'Focusrite USB ASIO')
+            & $ids $f | Should Be 'asio.match.Scarlett 2i2'
+        }
+        It 'flags a driver of another brand as mismatch and as leftover' {
+            $f = Get-RTAsioFindings -Interfaces @(& $iface 'UMC404HD' 'Behringer') -Drivers @(& $drv 'Focusrite USB ASIO')
+            $i = & $ids $f
+            $i -contains 'asio.mismatch.UMC404HD' | Should Be $true
+            $i -contains 'asio.orphans' | Should Be $true
+        }
+        It 'does not treat FL Studio ASIO as a PreSonus driver' {
+            $f = Get-RTAsioFindings -Interfaces @(& $iface 'Studio 24c' 'PreSonus') -Drivers @(& $drv 'FL Studio ASIO')
+            & $ids $f | Should Be 'asio.generic.Studio 24c'
+        }
+        It 'warns that a generic driver sits next to the matching one' {
+            $f = Get-RTAsioFindings -Interfaces @(& $iface 'Babyface Pro' 'RME') -Drivers @((& $drv 'ASIO Babyface Pro'), (& $drv 'ASIO4ALL v2'))
+            (& $ids $f) -contains 'asio.alsogeneric.Babyface Pro' | Should Be $true
+        }
+        It 'cannot verify an interface of unknown vendor and does not call its driver a leftover' {
+            $f = Get-RTAsioFindings -Interfaces @(& $iface 'Mystery Box' '') -Drivers @(& $drv 'Mystery ASIO')
+            & $ids $f | Should Be 'asio.unverified.Mystery Box'
+        }
+        It 'reports registry entries whose DLL is missing, and 32-bit-only drivers' {
+            $f = Get-RTAsioFindings -Interfaces @() -Drivers @(
+                (& $drv 'MOTU Pro Audio' @{ 64 = @{ Dll = 'gone.dll'; DllExists = $false } }),
+                (& $drv 'Old TASCAM ASIO' @{ 32 = $ok }))
+            $i = & $ids $f
+            $i -contains 'asio.broken.MOTU Pro Audio' | Should Be $true
+            $i -contains 'asio.32bit.Old TASCAM ASIO' | Should Be $true
+        }
+        It 'does not accept a 32-bit-only vendor driver as a match' {
+            $f = Get-RTAsioFindings -Interfaces @(& $iface 'Scarlett 2i2' 'Focusrite') -Drivers @(& $drv 'Focusrite USB ASIO' @{ 32 = $ok })
+            (& $ids $f) -contains 'asio.match.Scarlett 2i2' | Should Be $false
+        }
+        It 'reports no ASIO driver at all' {
+            & $ids (Get-RTAsioFindings -Interfaces @() -Drivers @()) | Should Be 'asio.none'
+        }
+    }
+
     Describe 'Measure-RTBufferStalls' {
         It 'counts consecutive late callbacks as one stall and scales thresholds with the buffer' {
             # 64 samples @48k = 1.33 ms -> 50% headroom 0.67 ms; 128 -> 1.33 ms; 256 -> 2.67 ms

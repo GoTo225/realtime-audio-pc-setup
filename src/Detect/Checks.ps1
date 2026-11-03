@@ -13,24 +13,93 @@ Register-RTDetector -Id 'daws' -Detect {
     }
 }
 
-Register-RTDetector -Id 'asio' -Detect {
-    param($ctx)
-    $asio = @(Get-RTAsioDrivers)
-    $vendor = @($asio | Where-Object { -not $_.Generic })
-    $list = ($asio | ForEach-Object Name) -join ', '
-    if (-not $asio) {
-        New-RTFinding -Id 'asio.none' -Severity Problem -Category 'Audio driver' -Title 'No ASIO driver installed' `
+function Get-RTAsioMatch {
+    <#
+      Pairs connected interfaces with installed ASIO drivers. Pure (testable with fake data).
+      Returns one entry per interface: Interface, Vendor ('' = unknown), Drivers (usable 64-bit
+      drivers of that vendor), Verified (vendor known, so a match/mismatch is certain).
+    #>
+    param([object[]]$Interfaces, [object[]]$Drivers)
+    $usable = @($Drivers | Where-Object { -not $_.Generic -and $_.Has64 })
+    foreach ($i in $Interfaces) {
+        $v = "$($i.KnownVendor)"
+        [pscustomobject]@{
+            Interface = $i
+            Vendor    = $v
+            Verified  = [bool]$v
+            Drivers   = @(if ($v) { $usable | Where-Object Vendor -eq $v } else { $usable })
+        }
+    }
+}
+
+function Get-RTAsioFindings {
+    param([object[]]$Interfaces, [object[]]$Drivers)
+    $Interfaces = @($Interfaces | Where-Object { $_ -and $_.Enabled })
+    $Drivers = @($Drivers | Where-Object { $_ })
+    $list = ($Drivers | ForEach-Object Name) -join ', '
+    if (-not $Drivers) {
+        return New-RTFinding -Id 'asio.none' -Severity Problem -Category 'Audio driver' -Title 'No ASIO driver installed' `
             -Advice 'Install the ASIO driver from your audio interface manufacturer. Without an interface, FL Studio ASIO or ASIO4ALL is the fallback.' -GuideId 'asio-driver'
-    } elseif (-not $vendor -and $ctx.Interfaces) {
-        New-RTFinding -Id 'asio.generic-with-interface' -Severity Warning -Category 'Audio driver' `
-            -Title "Audio interface found ($(($ctx.Interfaces | ForEach-Object Name) -join ', ')), but only generic ASIO drivers are installed" `
-            -Detail "Installed: $list" -Advice "Install the manufacturer's ASIO driver; generic wrappers add latency and are less stable." -GuideId 'asio-driver'
-    } elseif (-not $vendor) {
+    }
+
+    # Registry entries whose DLL is gone (uninstalled driver) and 32-bit-only drivers.
+    foreach ($d in $Drivers) {
+        if ($d.Broken) {
+            New-RTFinding -Id "asio.broken.$($d.Name)" -Severity Warning -Category 'Audio driver' -Title "ASIO driver '$($d.Name)' is registered, but its DLL is missing ($($d.Broken -join ', '))" `
+                -Detail ($d.Dlls -join '; ') -Advice 'Leftover of an uninstalled or broken driver. DAWs may list a dead driver or hang while scanning drivers. Reinstall the driver, or uninstall it completely.' -GuideId 'asio-driver'
+        } elseif (-not $d.Generic -and $d.Has32 -and -not $d.Has64) {
+            New-RTFinding -Id "asio.32bit.$($d.Name)" -Severity Warning -Category 'Audio driver' -Title "ASIO driver '$($d.Name)' is 32-bit only" `
+                -Detail ($d.Dlls -join '; ') -Advice 'Current DAWs are 64-bit and cannot see it. Install the current (64-bit) driver from the manufacturer.' -GuideId 'asio-driver'
+        }
+    }
+
+    $pairs = @(Get-RTAsioMatch -Interfaces $Interfaces -Drivers $Drivers)
+    foreach ($m in $pairs) {
+        $n = $m.Interface.Name
+        if ($m.Drivers) {
+            $names = ($m.Drivers | ForEach-Object Name) -join ', '
+            if ($m.Verified) {
+                New-RTFinding -Id "asio.match.$n" -Severity Ok -Category 'Audio driver' -Title "$n has its own ASIO driver: $names"
+            } else {
+                New-RTFinding -Id "asio.unverified.$n" -Severity Info -Category 'Audio driver' -Title "Could not verify which ASIO driver belongs to $n" `
+                    -Detail "Installed: $list" -Advice "Make sure the DAW uses the driver from $n's manufacturer (installed non-generic: $names)." -GuideId 'asio-driver'
+            }
+            $generic = @($Drivers | Where-Object Generic | ForEach-Object Name)
+            if ($generic) {
+                New-RTFinding -Id "asio.alsogeneric.$n" -Severity Info -Category 'Audio driver' -Title "Generic ASIO drivers are installed next to $(($m.Drivers | ForEach-Object Name) -join ', ')" `
+                    -Detail "Generic: $($generic -join ', ')" -Advice "Select $(@($m.Drivers)[0].Name) in the DAW. Generic wrappers such as ASIO4ALL can grab the interface and block its own driver." -GuideId 'asio-driver'
+            }
+        } elseif ($m.Verified -and @($Drivers | Where-Object { -not $_.Generic -and $_.Has64 })) {
+            $others = @($Drivers | Where-Object { -not $_.Generic -and $_.Has64 } | ForEach-Object Name)
+            New-RTFinding -Id "asio.mismatch.$n" -Severity Warning -Category 'Audio driver' -Title "No $($m.Vendor) ASIO driver installed for $n" `
+                -Detail "The installed dedicated driver(s) belong to other devices: $($others -join ', ')" `
+                -Advice "Install the ASIO driver from $($m.Vendor) for this interface. A driver for another brand cannot drive it." -GuideId 'asio-driver'
+        } else {
+            New-RTFinding -Id "asio.generic.$n" -Severity Warning -Category 'Audio driver' -Title "$n has no ASIO driver of its own; only generic ASIO drivers are installed" `
+                -Detail "Installed: $list" -Advice "Install the $(if ($m.Vendor) { $m.Vendor } else { "manufacturer's" }) ASIO driver; generic wrappers add latency and are less stable." -GuideId 'asio-driver'
+        }
+    }
+
+    # Dedicated drivers no connected interface accounts for. If an interface of unknown vendor is
+    # connected, a driver without a known vendor may be its own, so only known-vendor ones count.
+    $connected = @($pairs | Where-Object Verified | ForEach-Object Vendor)
+    $unknownConnected = [bool]($pairs | Where-Object { -not $_.Verified })
+    $orphans = @($Drivers | Where-Object {
+        -not $_.Generic -and -not $_.Broken -and $connected -notcontains $_.Vendor -and ($_.Vendor -or -not $unknownConnected)
+    } | ForEach-Object Name)
+    if ($orphans) {
+        New-RTFinding -Id 'asio.orphans' -Severity Info -Category 'Audio driver' -Title "ASIO drivers for devices that are not connected: $($orphans -join ', ')" `
+            -Advice 'Fine if you use that interface sometimes. If you no longer own it, uninstall its driver (Settings > Apps) so the DAW cannot pick a dead driver.' -GuideId 'asio-driver'
+    }
+    if (-not $Interfaces -and -not $orphans -and -not ($Drivers | Where-Object { -not $_.Generic })) {
         New-RTFinding -Id 'asio.generic-only' -Severity Info -Category 'Audio driver' -Title 'Only generic ASIO drivers installed' `
             -Detail "Installed: $list" -Advice 'Fine for onboard audio. For low latency (under ~10 ms) a dedicated audio interface with its own ASIO driver is strongly recommended.' -GuideId 'asio-driver'
-    } else {
-        New-RTFinding -Id 'asio.ok' -Severity Ok -Category 'Audio driver' -Title "Dedicated ASIO driver installed: $(($vendor | ForEach-Object Name) -join ', ')" -Detail "All: $list"
     }
+}
+
+Register-RTDetector -Id 'asio' -Detect {
+    param($ctx)
+    Get-RTAsioFindings -Interfaces $ctx.Interfaces -Drivers @(Get-RTAsioDrivers)
 }
 
 Register-RTDetector -Id 'interface' -Detect {

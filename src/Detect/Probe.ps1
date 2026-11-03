@@ -23,6 +23,13 @@ namespace RTAudio {
         public int Callbacks;
         public float[] DelaysMs;
         public string Error;
+        // Live progress for long (soak) runs; Cancel ends the run early with what was measured.
+        public volatile int Done;
+        public volatile float MaxSoFar;
+        public volatile bool Cancel;
+        public int Total;
+        public Thread Worker;
+        public bool IsCompleted { get { return Worker == null || !Worker.IsAlive; } }
     }
 
     public static class RealtimeProbe {
@@ -70,12 +77,18 @@ namespace RTAudio {
             sink = x;
         }
 
-        public static ProbeResult Run(double seconds, double periodMs, double workMs) {
+        public static ProbeResult Start(double seconds, double periodMs, double workMs) {
             var r = new ProbeResult { PeriodMs = periodMs, WorkMs = workMs, Seconds = seconds };
-            var t = new Thread(() => { try { Body(r); } catch (Exception e) { r.Error = e.Message; } });
-            t.IsBackground = true;
-            t.Start();
-            t.Join();
+            r.Total = (int)(seconds * 1000.0 / periodMs);
+            r.Worker = new Thread(() => { try { Body(r); } catch (Exception e) { r.Error = e.Message; } });
+            r.Worker.IsBackground = true;
+            r.Worker.Start();
+            return r;
+        }
+
+        public static ProbeResult Run(double seconds, double periodMs, double workMs) {
+            var r = Start(seconds, periodMs, workMs);
+            r.Worker.Join();
             return r;
         }
 
@@ -106,7 +119,9 @@ namespace RTAudio {
                 var raw = new float[total];
                 var work = new float[total];
                 long start = Stopwatch.GetTimestamp() + period;
+                int done = total;
                 for (int k = 0; k < total; k++) {
+                    if (r.Cancel) { done = k; break; }
                     long due = start + k * period;
                     long now = Stopwatch.GetTimestamp();
                     // Sleep until shortly before the deadline, then spin to it: the timer's own wake-up
@@ -123,7 +138,16 @@ namespace RTAudio {
                     long end = Stopwatch.GetTimestamp();
                     raw[k] = (float)((end - due) * tick);
                     work[k] = (float)((end - w) * tick);
+                    if (k >= warmup) {
+                        r.Done = k - warmup + 1;
+                        float d = raw[k] - (float)r.WorkMs;
+                        if (d > r.MaxSoFar) r.MaxSoFar = d;
+                    }
                 }
+                if (done <= warmup + 10) throw new Exception("Probe cancelled before it measured anything.");
+                total = done;
+                r.Seconds = (total - warmup) * r.PeriodMs / 1000.0;
+                Array.Resize(ref raw, total); Array.Resize(ref work, total);
                 // Undisturbed work time: a low percentile of the measured work durations.
                 var sorted = new List<float>(work); sorted.Sort();
                 float baseline = sorted[sorted.Count / 20];
@@ -169,17 +193,31 @@ function Measure-RTBufferStalls {
 }
 
 function Invoke-RTRealtimeProbe {
-    <# Runs the probe for -Seconds and returns delay statistics plus the per-buffer verdict. #>
-    param([int]$Seconds = 10)
-    $r = [RTAudio.RealtimeProbe]::Run([double]$Seconds, 1000.0 * 64 / $script:ProbeSampleRate, 0.25)
+    <#
+      Runs the probe for -Seconds and returns delay statistics plus the per-buffer verdict.
+      -Progress gets a status line about once a second (useful for long soak runs).
+      -Control is an optional synchronized hashtable; setting its 'Cancel' key to $true ends the run early
+      with the data measured so far.
+    #>
+    param([int]$Seconds = 10, [scriptblock]$Progress = { param($m) }, [hashtable]$Control)
+    $r = [RTAudio.RealtimeProbe]::Start([double]$Seconds, 1000.0 * 64 / $script:ProbeSampleRate, 0.25)
+    while (-not $r.IsCompleted) {
+        [void]$r.Worker.Join(1000)
+        if ($Control -and $Control.ContainsKey('Cancel') -and $Control['Cancel']) { $r.Cancel = $true }
+        if ($r.Total -gt 0 -and -not $r.IsCompleted) {
+            $el = [int]($r.Done * $r.PeriodMs / 1000)
+            & $Progress ("Real-time probe: {0} / {1} s, worst stall so far {2:0.00} ms" -f $el, $Seconds, [math]::Max(0, $r.MaxSoFar))
+        }
+    }
     if ($r.Error -or -not $r.DelaysMs) { return [pscustomobject]@{ Ok = $false; Error = "$($r.Error)" } }
+    $secs = [math]::Round($r.Seconds, 1)
     $sorted = [float[]]$r.DelaysMs.Clone(); [Array]::Sort($sorted)
     $pct = { param($p) [math]::Round($sorted[[math]::Min($sorted.Length - 1, [int]($sorted.Length * $p))], 3) }
-    $buffers = @(Measure-RTBufferStalls -DelaysMs $r.DelaysMs -Seconds $Seconds)
+    $buffers = @(Measure-RTBufferStalls -DelaysMs $r.DelaysMs -Seconds $secs)
     $stable = $buffers | Where-Object { $_.Stalls -eq 0 } | Select-Object -First 1
     [pscustomobject]@{
         Ok           = $true
-        Seconds      = $Seconds
+        Seconds      = $secs
         Callbacks    = $r.Callbacks
         HighResTimer = $r.HighResTimer
         Mmcss        = $r.Mmcss
@@ -189,5 +227,77 @@ function Invoke-RTRealtimeProbe {
         MaxMs        = [math]::Round($sorted[-1], 3)
         Buffers      = $buffers
         StableBuffer = $(if ($stable) { $stable.Buffer } else { $null })
+        Drivers      = $null       # filled by the scan when a driver trace ran alongside
     }
 }
+
+#region History: compare runs before/after changes ---------------------------------
+
+# Per user (the elevated GUI runs as the same user), so a non-admin quick check sees the same history.
+$script:ProbeHistoryPath = Join-Path $env:LOCALAPPDATA 'RTAudio\probe-history.json'
+
+function ConvertTo-RTProbeRecord {
+    param([Parameter(Mandatory)]$Probe, [string]$Label = '', [int]$AppliedTweaks = 0, [bool]$StudioMode = $false)
+    [pscustomobject]@{
+        Timestamp     = (Get-Date).ToString('o')
+        Label         = $Label
+        Seconds       = $Probe.Seconds
+        StableBuffer  = $Probe.StableBuffer
+        MaxMs         = $Probe.MaxMs
+        P999Ms        = $Probe.P999Ms
+        AppliedTweaks = $AppliedTweaks
+        StudioMode    = $StudioMode
+        Buffers       = @($Probe.Buffers | ForEach-Object { [pscustomobject]@{ Buffer = $_.Buffer; PerMinute = $_.PerMinute } })
+    }
+}
+
+function Get-RTProbeHistory {
+    if (-not (Test-Path $script:ProbeHistoryPath)) { return @() }
+    # Windows PowerShell 5.1 emits a JSON array as one object; the parentheses unroll it.
+    try { @((Get-Content -Raw -Path $script:ProbeHistoryPath -Encoding UTF8 | ConvertFrom-Json) | ForEach-Object { $_ }) } catch { @() }
+}
+
+function Add-RTProbeHistory {
+    # Appends a record (keeps the newest 50) and returns the previous record, if any.
+    param([Parameter(Mandatory)]$Record)
+    $h = @(Get-RTProbeHistory)
+    $previous = if ($h) { $h[-1] } else { $null }
+    $h = @($h + $Record | Select-Object -Last 50)
+    try {
+        $dir = Split-Path -Parent $script:ProbeHistoryPath
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        ConvertTo-Json -InputObject $h -Depth 5 | Set-Content -Path $script:ProbeHistoryPath -Encoding UTF8
+    } catch { Write-RTLog "Probe history: $_" }
+    $previous
+}
+
+function Compare-RTProbe {
+    <# Pure: describes how the stall rates changed between two probe records. #>
+    param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After)
+    $fmt = { param($b) if ($null -eq $b) { 'none' } else { "$b samples" } }
+    $changes = foreach ($a in @($After.Buffers)) {
+        $b = @($Before.Buffers) | Where-Object { $_.Buffer -eq $a.Buffer } | Select-Object -First 1
+        if (-not $b -or $b.PerMinute -eq $a.PerMinute) { continue }
+        [pscustomobject]@{ Buffer = $a.Buffer; Before = $b.PerMinute; After = $a.PerMinute }
+    }
+    $sb = $Before.StableBuffer; $sa = $After.StableBuffer
+    $verdict = if ($sb -eq $sa) { 'Unchanged' }
+               elseif ($null -eq $sa) { 'Worse' }
+               elseif ($null -eq $sb -or $sa -lt $sb) { 'Better' }
+               else { 'Worse' }
+    $when = try { ([datetime]$Before.Timestamp).ToString('yyyy-MM-dd HH:mm') } catch { "$($Before.Timestamp)" }
+    $text = "Compared with $when" + $(if ($Before.Label) { " ($($Before.Label))" } else { '' }) + ': '
+    $text += switch ($verdict) {
+        'Unchanged' { "stable buffer unchanged ($(& $fmt $sa))" }
+        default     { "stable buffer $(& $fmt $sb) -> $(& $fmt $sa)" }
+    }
+    if ($changes) { $text += '; stalls/min ' + (($changes | ForEach-Object { "$($_.Buffer): $($_.Before) -> $($_.After)" }) -join ', ') }
+    $ratio = if ($Before.Seconds -gt 0 -and $After.Seconds -gt 0) { [math]::Max($Before.Seconds, $After.Seconds) / [math]::Min($Before.Seconds, $After.Seconds) } else { 1 }
+    if ($verdict -ne 'Unchanged' -and $Before.Seconds -lt 60 -and $After.Seconds -lt 60) {
+        $text += ' Short runs vary from run to run; confirm with a 1-minute or soak run.'
+    }
+    if ($ratio -gt 2) { $text += " (runs of different length: $($Before.Seconds) s vs $($After.Seconds) s; longer runs catch rarer stalls)" }
+    [pscustomobject]@{ Verdict = $verdict; Text = $text; Changes = @($changes); Previous = $Before }
+}
+
+#endregion

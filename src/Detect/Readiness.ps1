@@ -41,7 +41,8 @@ function Get-RTReadiness {
     <#
       Pure function over collected facts (so it can be tested with fake machines):
         Hardware  : output of Get-RTHardwareFacts
-        Interfaces, VendorAsio (bool), AnyAsio (bool), ClassDriverOnly (bool)
+        Interfaces, VendorAsio (bool: the interface's own 64-bit ASIO driver is installed),
+        AsioNames (string, optional), AnyAsio (bool), ClassDriverOnly (bool)
         Probe     : output of Invoke-RTRealtimeProbe or $null
         OpenTweaks: number of Safe/Recommended tweaks that are not applied yet
         Throttled : CPU dropped below 70 % during latency sampling
@@ -84,7 +85,7 @@ function Get-RTReadiness {
     if ($ifaces) {
         [void]$areas.Add((New-RTArea 'Audio interface' 'Good' 'Hardware' "$(($ifaces | ForEach-Object Name | Select-Object -Unique) -join ', ')"))
         if ($Facts.VendorAsio -and -not $Facts.ClassDriverOnly) {
-            [void]$areas.Add((New-RTArea 'Audio driver' 'Good' 'Setup' 'Manufacturer ASIO driver installed'))
+            [void]$areas.Add((New-RTArea 'Audio driver' 'Good' 'Setup' $(if ($Facts['AsioNames']) { "Own ASIO driver: $($Facts['AsioNames'])" } else { 'Manufacturer ASIO driver installed' })))
         } else {
             [void]$areas.Add((New-RTArea 'Audio driver' 'Poor' 'Setup' 'Interface runs without its manufacturer ASIO driver' `
                 "Install the interface's own driver; generic drivers rarely run stably below 256 samples." 'asio-driver'))
@@ -122,6 +123,11 @@ function Get-RTReadiness {
             "Stable down to $stable samples ($([math]::Round(1000.0 * $stable / 48000, 1)) ms at 48 kHz); worst stall $($p.MaxMs) ms" }
         $adv = if ($rating -eq 'Good') { 'Run LatencyMon for a long test with your DAW open to confirm.' } else {
             'Something steals time from audio threads. Apply the tweaks, close background apps, turn off Wi-Fi/Bluetooth, then run LatencyMon to find the driver.' }
+        $top = $null
+        if ($p.PSObject.Properties['Drivers'] -and $p.Drivers -and $p.Drivers.Ok) { $top = @($p.Drivers.Drivers) | Where-Object { $_.MaxUs -ge 500 } | Select-Object -First 1 }
+        if ($top) {
+            $adv = "Longest interruption: $($top.Driver) ($([math]::Round($top.MaxUs)) us). " + $(if ($top.Explanation) { $top.Explanation } else { 'Update or replace that driver.' })
+        }
         [void]$areas.Add((New-RTArea 'Real-time performance' $rating 'Measured' $sum $adv 'latencymon'))
     } else {
         [void]$areas.Add((New-RTArea 'Real-time performance' 'Unknown' 'Measured' $(if ($p) { "Probe failed: $($p.Error)" } else { 'Not measured' })))
@@ -159,11 +165,13 @@ function Get-RTReadinessForScan {
     $ctx = $Scan.Context
     $asio = @(Get-RTAsioDrivers)
     $ifaces = @($ctx.Interfaces | Where-Object Enabled)
+    $own = @(Get-RTAsioMatch -Interfaces $ifaces -Drivers $asio | ForEach-Object { $_.Drivers })
     $recommended = @($Scan.Tweaks | Where-Object { $_.Status -eq 'NotOptimal' -and @($_.Presets | Where-Object { $_ -in 'Safe', 'Recommended' }).Count })
     Get-RTReadiness -Facts @{
         Hardware        = Get-RTHardwareFacts
         Interfaces      = $ifaces
-        VendorAsio      = [bool]($asio | Where-Object { -not $_.Generic })
+        VendorAsio      = [bool]$own
+        AsioNames       = ($own | ForEach-Object Name | Select-Object -Unique) -join ', '
         AnyAsio         = [bool]$asio
         ClassDriverOnly = [bool]($ifaces -and -not ($ifaces | Where-Object { $_.DriverProvider -notmatch '^Microsoft' -and $_.Service -notmatch '^usbaudio2?$' }))
         Probe           = $Probe

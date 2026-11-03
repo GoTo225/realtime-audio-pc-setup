@@ -14,6 +14,7 @@
       .\RTAudio.ps1 -Apply power.plan,power.usb-suspend [-DryRun]
       .\RTAudio.ps1 -Undo [-UndoIds power.plan]
       .\RTAudio.ps1 -Guide
+      .\RTAudio.ps1 -Studio On [-StudioActions studio.apps,studio.wifi] | Off | Status
 
     Applying and undoing need an elevated prompt. Backups live in %ProgramData%\RTAudio\ledger.json.
 #>
@@ -32,6 +33,8 @@ param(
     [Parameter(ParameterSetName = 'Undo', Mandatory)][switch]$Undo,
     [Parameter(ParameterSetName = 'Undo')][string[]]$UndoIds,
     [Parameter(ParameterSetName = 'Guide')][switch]$Guide,
+    [Parameter(ParameterSetName = 'Studio', Mandatory)][ValidateSet('On', 'Off', 'Status')][string]$Studio,
+    [Parameter(ParameterSetName = 'Studio')][string[]]$StudioActions,
     [Parameter(ParameterSetName = 'Gui')][switch]$NoElevate,
     [Parameter(ParameterSetName = 'Gui')][switch]$QuickCheck
 )
@@ -74,7 +77,11 @@ function Write-Readiness {
         foreach ($b in $p.Buffers) {
             Write-Host ('  {0,5} samples   {1,6} ms   {2}' -f $b.Buffer, $b.BufferMs, $b.PerMinute) -ForegroundColor $(if ($b.Stalls) { 'Red' } else { 'Green' })
         }
-        Write-Host "  Probe: $($p.Callbacks) callbacks, delay median $($p.MedianMs) ms, 99.9% $($p.P999Ms) ms, max $($p.MaxMs) ms (assumes 50% DSP load)." -ForegroundColor DarkGray
+        Write-Host "  Probe: $($p.Seconds) s, $($p.Callbacks) callbacks, delay median $($p.MedianMs) ms, 99.9% $($p.P999Ms) ms, max $($p.MaxMs) ms (assumes 50% DSP load)." -ForegroundColor DarkGray
+    }
+    if ($Readiness.PSObject.Properties['Comparison'] -and $Readiness.Comparison) {
+        $c = $Readiness.Comparison
+        Write-Host "  $($c.Text)" -ForegroundColor @{ Better = 'Green'; Worse = 'Red'; Unchanged = 'Gray' }[$c.Verdict]
     }
 }
 
@@ -120,6 +127,17 @@ switch ($PSCmdlet.ParameterSetName) {
         }
         Write-Host "`nFor details and fixes run Start-RTAudio.cmd (or .\RTAudio.ps1 -Scan)." -ForegroundColor DarkGray
         if ($Report) { Write-Host "Report: $(Export-RTReport -Scan $result -Path $Report)" }
+    }
+    'Studio' {
+        switch ($Studio) {
+            'Status' {
+                $st = Get-RTStudioState
+                Write-Host $(if ($st) { "Studio mode is ON since $($st.StartedAt)." } else { 'Studio mode is off.' }) -ForegroundColor Cyan
+                Get-RTStudioActions | Format-Table Id, Default, Available, Title, Note -AutoSize | Out-String -Width 220 | Write-Host
+            }
+            'On'  { Assert-Admin; Write-Results (Enable-RTStudioMode -Ids $StudioActions -Progress $progress); Write-Host 'Studio mode is on. End it with: .\RTAudio.ps1 -Studio Off' -ForegroundColor Cyan }
+            'Off' { Assert-Admin; $r = @(Disable-RTStudioMode -Progress $progress); if ($r) { Write-Results $r } else { Write-Host 'Studio mode was not on.' } }
+        }
     }
     'List' {
         Get-RTTweaks | ForEach-Object {
